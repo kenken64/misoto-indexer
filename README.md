@@ -231,20 +231,22 @@ chmod +x setup-models.sh
    ```
 
 6. **Access Interactive CLI Menu**
-   The application will start with a clean interface directly to the menu:   ```
+   The application will start with a clean interface directly to the menu:   
+   
+   ```
    ╔══════════════════════════════════════════════════════════════╗
-   ║                    MISOTO CODEBASE INDEXER                  ║
-   ║                   Intelligent Code Search                   ║
+   ║                    MISOTO CODEBASE INDEXER                   ║
+   ║                   Intelligent Code Search                    ║
    ╚══════════════════════════════════════════════════════════════╝   ┌─────────────────── SEARCH MENU ───────────────────┐
-   │ 1. [>] Search with Natural Language Prompt       │
-   │ 2. [i] Indexing Status                           │
-   │ 3. [S] Semantic Code Search                      │
-   │ 4. [T] Text Search                               │
-   │ 5. [A] Advanced Search                           │
-   │ 6. [I] Index Codebase                            │
-   │ 7. [?] Help                                       │
-   │ 0. [X] Exit                                       │
-   └───────────────────────────────────────────────────┘
+   │ 1. [>] Search with Natural Language Prompt         │
+   │ 2. [i] Indexing Status                             │
+   │ 3. [S] Semantic Code Search                        │
+   │ 4. [T] Text Search                                 │
+   │ 5. [A] Advanced Search                             │
+   │ 6. [I] Index Codebase                              │
+   │ 7. [?] Help                                        │
+   │ 0. [X] Exit                                        │
+   └────────────────────────────────────────────────────┘
    ```
 
 ## Usage
