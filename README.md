@@ -251,46 +251,6 @@ chmod +x setup-models.sh
    └───────────────────────────────────────────────────┘
    ```
 
-## Usage
-
-### Getting Started
-
-1. **Start the Application:**
-   ```bash
-   mvn spring-boot:run
-   ```
-
-2. **Wait for Initialization:**
-   - The application will initialize Qdrant collection
-   - Background indexing starts automatically
-   - CLI menu appears immediately (indexing runs in background)
-
-3. **Begin Searching:**
-   - Search is available even while indexing is in progress
-   - Priority files (Controllers, Services) are indexed first for immediate results
-
-### Interactive CLI Menu
-
-When you run the application, you'll see an interactive menu:
-
-```
-╔══════════════════════════════════════════════════════════════╗
-║                    MISOTO CODEBASE INDEXER                  ║
-║                   Intelligent Code Search                   ║
-╚══════════════════════════════════════════════════════════════╝
-
-┌─────────────────── SEARCH MENU ───────────────────┐
-│ 1. [>] Search with Natural Language Prompt       │
-│ 2. [i] Indexing Status                           │
-│ 3. [S] Semantic Code Search                      │
-│ 4. [T] Text Search                               │
-│ 5. [A] Advanced Search                           │
-│ 6. [I] Index Codebase                            │
-│ 7. [?] Help                                       │
-│ 0. [X] Exit                                       │
-└───────────────────────────────────────────────────┘
-```
-
 ### Detailed Menu Options
 
 #### **1. 🔍 Natural Language Search**
