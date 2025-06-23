@@ -562,675 +562,1110 @@ src/main/java/sg/edu/nus/iss/codebase/indexer/
 
 ### Architecture & Design Patterns
 
-The codebase has been refactored to implement several design patterns for better maintainability and extensibility:
+## 🔄 Sequence Diagrams
 
-#### **1. Configuration Pattern**
-- **IndexingConfiguration.java**: Centralizes all configuration settings
-- Externalized file extensions, priorities, and processing parameters
-- Environment-specific configuration through Spring Boot properties
-
-#### **2. Factory Pattern**
-- **DocumentFactory**: Interface for creating documents from different file types
-- **TextDocumentFactory**: Concrete factory for text-based files
-- **DocumentFactoryManager**: Manages multiple factories and selects appropriate one
-
-#### **3. Repository Pattern**
-- **FileCacheRepository**: Interface for file cache operations
-- **FileCacheRepositoryImpl**: Persistent cache implementation with modification tracking
-- Abstracts cache storage details from business logic
-
-#### **4. Strategy Pattern**
-- **SearchStrategy**: Interface for different search implementations
-- **SemanticSearchStrategy**: Vector-based semantic search
-- **TextSearchStrategy**: Keyword-based text search (extensible)
-- **NaturalLanguageSearchStrategy**: AI-powered search (extensible)
-
-#### **5. Observer Pattern**
-- **IndexingStatusObserver**: Interface for status update notifications
-- Real-time status updates to CLI and other components
-- Decoupled status reporting from indexing logic
-
-#### **6. Command Pattern**
-- **Command**: Interface for CLI actions
-- **IndexingStatusCommand**: Encapsulates status display logic
-- Extensible menu system with pluggable commands
-
-#### **7. Builder Pattern**
-- **IndexingStatus.Builder**: Fluent API for creating status objects
-- **SearchRequest**: DTO with builder support for complex queries
-
-#### **8. Service Layer Pattern**
-- **FileIndexingService**: Interface for indexing operations
-- **FileIndexingServiceImpl**: Core implementation with dependency injection
-- Clear separation of concerns between presentation, business, and data layers
-
-### Key Components
-
-#### **FileIndexingServiceImpl.java**
-- **Modular indexing engine** with separated concerns
-- **Observer pattern** for real-time status updates
-- **Factory pattern** for document creation
-- **Repository pattern** for cache management
-- **Configuration-driven** file processing
-- **Virtual thread pool** for concurrent I/O operations
-
-#### **HybridSearchService.java**
-- **Strategy pattern** for different search types
-- **Multi-modal search** orchestration
-- **Result ranking** and relevance scoring
-- **Performance optimization** with caching strategies
-
-#### **SearchCLI.java**
-- **Command pattern** for menu actions
-- **Interactive terminal interface** with real-time updates
-- **Observer implementation** for status monitoring
-- **Background processing** with responsive menu system
-
-#### **Configuration & Patterns**
-- **IndexingConfiguration**: Centralized, externalized settings
-- **FileCacheRepository**: Persistent cache with Repository pattern
-- **DocumentFactory**: Extensible factory for different file types
-- **SearchStrategy**: Pluggable search implementations
-
-### Architecture Highlights
-
-#### **Modular Design with Design Patterns**
-```java
-// Configuration Pattern - Externalized settings
-@ConfigurationProperties(prefix = "indexer")
-public class IndexingConfiguration {
-    private Set~String~ supportedExtensions;
-    private Map~String,Integer~ filePriorities;
-    // ... other configuration
-}
-
-// Factory Pattern - Document creation
-public interface DocumentFactory {
-    List<Document> createDocuments(File file);
-    boolean supports(File file);
-}
-
-// Repository Pattern - Cache management
-public interface FileCacheRepository {
-    boolean needsReindexing(File file);
-    void saveIndexedFile(String filePath);
-}
-
-// Strategy Pattern - Search implementations
-public interface SearchStrategy {
-    List<SearchResult> search(SearchRequest request);
-    boolean supports(SearchRequest.SearchType searchType);
-}
-
-// Observer Pattern - Status updates
-public interface IndexingStatusObserver {
-    void onStatusUpdate(IndexingStatus status);
-    void onIndexingComplete(IndexingStatus finalStatus);
-}
-```
-
-#### **Asynchronous Processing**
-```java
-@Async("virtualThreadExecutor")
-public CompletableFuture<Void> indexRemainingFilesAsync() {
-    // Background processing using virtual threads
-    // with observer notifications for status updates
-}
-```
-
-#### **Intelligent Caching with Repository Pattern**
-```java
-@Repository
-public class FileCacheRepositoryImpl implements FileCacheRepository {
-    public boolean needsReindexing(File file) {
-        // Only reindex if file is new or modified
-        return !indexedFilePaths.contains(filePath) || 
-               currentModTime != cachedModTime;
-    }
-}
-```
-
-#### **Vector Pipeline with Factory Pattern**
-```java
-// DocumentFactoryManager selects appropriate factory
-List<Document> documents = documentFactoryManager.createDocuments(file);
-vectorStore.add(documents); // nomic-embed-text → 768D vector → Qdrant
-```
-
-## 🎨 Design Patterns & UML Diagrams
-
-## 📐 UML Design Pattern Diagrams
-
-### **1. Factory Pattern - Document Creation**
+### **Main Application Flow - Indexing and Search Operations**
 
 ```mermaid
-classDiagram
-    class DocumentFactory {
-        <<interface>>
-        +createDocuments(File file) List~Document~
-        +supports(File file) boolean
-    }
-    
-    class TextDocumentFactory {
-        -chunkSize: int
-        -chunkOverlap: int
-        +createDocuments(File file) List~Document~
-        +supports(File file) boolean
-        -extractTextContent(File file) String
-        -createChunkedDocuments(String content, File file) List~Document~
-    }
-    
-    class DocumentFactoryManager {
-        -factories: List~DocumentFactory~
-        +createDocuments(File file) List~Document~
-        +registerFactory(DocumentFactory factory) void
-        -findSupportingFactory(File file) DocumentFactory
-    }
-    
-    class Document {
-        +content: String
-        +metadata: Map~String, Object~
-    }
-    
-    DocumentFactory <|.. TextDocumentFactory
-    DocumentFactoryManager o--> DocumentFactory : manages
-    DocumentFactory ..> Document : creates
-    TextDocumentFactory ..> Document : creates
-```
+sequenceDiagram
+    participant User
+    participant CLI as SearchCLI
+    participant IndexSvc as FileIndexingService
+    participant Config as IndexingConfiguration
+    participant Cache as FileCacheRepository
+    participant QdrantSvc as QdrantDocumentService
+    participant SearchSvc as HybridSearchService
+    participant SearchStrat as SearchStrategy
+    participant Observer as StatusObserver
 
-### **2. Repository Pattern - Cache Management**
-
-```mermaid
-classDiagram
-    class FileCacheRepository {
-        <<interface>>
-        +needsReindexing(File file) boolean
-        +saveIndexedFile(String filePath) void
-        +loadCache() void
-        +saveCache() void
-        +getCacheStats() Map~String, Object~
-    }
+    Note over User,Observer: Application Startup & Initialization
+    User->>CLI: Start Application
+    CLI->>Config: Load Configuration
+    Config-->>CLI: Return config settings
+    CLI->>IndexSvc: Initialize indexing service
+    IndexSvc->>QdrantSvc: Initialize Qdrant collection
+    QdrantSvc-->>IndexSvc: Collection ready
+    CLI->>IndexSvc: Add CLI as status observer
     
-    class FileCacheRepositoryImpl {
-        -indexedFilePaths: Set~String~
-        -fileModificationTimes: Map~String, Long~
-        -cacheFilePath: String
-        +needsReindexing(File file) boolean
-        +saveIndexedFile(String filePath) void
-        +loadCache() void
-        +saveCache() void
-        +getCacheStats() Map~String, Object~
-        -getCurrentModificationTime(File file) long
-        -getCachedModificationTime(String filePath) Long
-    }
+    Note over User,Observer: Directory Indexing Flow
+    User->>CLI: Select "Index Directory"
+    CLI->>User: Prompt for directory path
+    User->>CLI: Provide directory path
+    CLI->>IndexSvc: indexDirectory(path)
     
-    class FileIndexingServiceImpl {
-        -fileCacheRepository: FileCacheRepository
-        +indexDirectory(String directoryPath) void
-        -shouldIndexFile(File file) boolean
-    }
+    IndexSvc->>Cache: loadCache()
+    Cache-->>IndexSvc: Return cached file info
+    IndexSvc->>IndexSvc: scanDirectory(path)
+    IndexSvc->>Config: getSupportedExtensions()
+    Config-->>IndexSvc: Return extensions list
     
-    FileCacheRepository <|.. FileCacheRepositoryImpl
-    FileIndexingServiceImpl --> FileCacheRepository : uses
-```
-
-### **3. Strategy Pattern - Search Implementations**
-
-```mermaid
-classDiagram
-    class SearchStrategy {
-        <<interface>>
-        +search(SearchRequest request) List~SearchResult~
-        +supports(SearchType searchType) boolean
-    }
-    
-    class SemanticSearchStrategy {
-        -vectorStore: VectorStore
-        -embeddingModel: EmbeddingModel
-        +search(SearchRequest request) List~SearchResult~
-        +supports(SearchType searchType) boolean
-        -createEmbeddingQuery(String query) List~Double~
-        -convertToSearchResults(List results) List~SearchResult~
-    }
-    
-    class TextSearchStrategy {
-        -fileSearchService: FileSearchService
-        +search(SearchRequest request) List~SearchResult~
-        +supports(SearchType searchType) boolean
-        -performTextSearch(String query) List~SearchResult~
-    }
-    
-    class NaturalLanguageSearchStrategy {
-        -chatModel: ChatModel
-        -semanticSearchStrategy: SemanticSearchStrategy
-        +search(SearchRequest request) List~SearchResult~
-        +supports(SearchType searchType) boolean
-        -processNaturalLanguageQuery(String query) String
-    }
-    
-    class HybridSearchService {
-        -searchStrategies: List~SearchStrategy~
-        +search(SearchRequest request) List~SearchResult~
-        -findStrategy(SearchType type) SearchStrategy
-        -rankAndMergeResults(List results) List~SearchResult~
-    }
-    
-    SearchStrategy <|.. SemanticSearchStrategy
-    SearchStrategy <|.. TextSearchStrategy
-    SearchStrategy <|.. NaturalLanguageSearchStrategy
-    HybridSearchService o--> SearchStrategy : manages
-```
-
-### **4. Observer Pattern - Status Updates**
-
-```mermaid
-classDiagram
-    class IndexingStatusObserver {
-        <<interface>>
-        +onStatusUpdate(IndexingStatus status) void
-        +onIndexingComplete(IndexingStatus finalStatus) void
-        +onIndexingError(String error) void
-    }
-    
-    class FileIndexingServiceImpl {
-        -observers: List~IndexingStatusObserver~
-        -currentStatus: IndexingStatus
-        +addObserver(IndexingStatusObserver observer) void
-        +removeObserver(IndexingStatusObserver observer) void
-        +indexDirectory(String path) void
-        -notifyObservers(IndexingStatus status) void
-        -notifyCompletion(IndexingStatus status) void
-        -notifyError(String error) void
-    }
-    
-    class SearchCLI {
-        +onStatusUpdate(IndexingStatus status) void
-        +onIndexingComplete(IndexingStatus finalStatus) void
-        +onIndexingError(String error) void
-        -displayStatusUpdate(IndexingStatus status) void
-    }
-    
-    class StatusMetricsCollector {
-        -metricsHistory: List~IndexingStatus~
-        +onStatusUpdate(IndexingStatus status) void
-        +onIndexingComplete(IndexingStatus finalStatus) void
-        +onIndexingError(String error) void
-        +getMetricsReport() String
-    }
-    
-    IndexingStatusObserver <|.. SearchCLI
-    IndexingStatusObserver <|.. StatusMetricsCollector
-    FileIndexingServiceImpl o--> IndexingStatusObserver : notifies
-```
-
-### **5. Command Pattern - CLI Actions**
-
-```mermaid
-classDiagram
-    class Command {
-        <<interface>>
-        +execute(String[] args) void
-        +getDescription() String
-        +getUsage() String
-    }
-    
-    class IndexingStatusCommand {
-        -fileIndexingService: FileIndexingService
-        +execute(String[] args) void
-        +getDescription() String
-        +getUsage() String
-        -displayDetailedStatus() void
-        -formatStatusDisplay(IndexingStatus status) String
-    }
-    
-    class SearchCommand {
-        -hybridSearchService: HybridSearchService
-        +execute(String[] args) void
-        +getDescription() String
-        +getUsage() String
-        -performSearch(SearchRequest request) void
-    }
-    
-    class IndexCommand {
-        -fileIndexingService: FileIndexingService
-        +execute(String[] args) void
-        +getDescription() String
-        +getUsage() String
-        -startIndexing(String directoryPath) void
-    }
-    
-    class SearchCLI {
-        -commands: Map~String, Command~
-        +registerCommand(String key, Command command) void
-        +executeCommand(String commandKey, String[] args) void
-        -displayMenu() void
-        -processUserInput() void
-    }
-    
-    Command <|.. IndexingStatusCommand
-    Command <|.. SearchCommand
-    Command <|.. IndexCommand
-    SearchCLI o--> Command : manages
-```
-
-### **6. Builder Pattern - Configuration Objects**
-
-```mermaid
-classDiagram
-    class IndexingStatus {
-        -totalFiles: int
-        -indexedFiles: int
-        -startTime: LocalDateTime
-        -estimatedCompletion: LocalDateTime
-        -filesPerSecond: double
-        -activeThreads: int
-        -peakThreads: int
-        -fileTypeStats: Map~String, Integer~
-        -failedFiles: int
-        -skippedFiles: int
-        +builder() IndexingStatusBuilder
-    }
-    
-    class IndexingStatusBuilder {
-        -totalFiles: int
-        -indexedFiles: int
-        -startTime: LocalDateTime
-        -estimatedCompletion: LocalDateTime
-        -filesPerSecond: double
-        -activeThreads: int
-        -peakThreads: int
-        -fileTypeStats: Map~String, Integer~
-        -failedFiles: int
-        -skippedFiles: int
-        +totalFiles(int totalFiles) IndexingStatusBuilder
-        +indexedFiles(int indexedFiles) IndexingStatusBuilder
-        +startTime(LocalDateTime startTime) IndexingStatusBuilder
-        +estimatedCompletion(LocalDateTime time) IndexingStatusBuilder
-        +filesPerSecond(double rate) IndexingStatusBuilder
-        +activeThreads(int threads) IndexingStatusBuilder
-        +peakThreads(int threads) IndexingStatusBuilder
-        +fileTypeStats(Map stats) IndexingStatusBuilder
-        +failedFiles(int failed) IndexingStatusBuilder
-        +skippedFiles(int skipped) IndexingStatusBuilder
-        +build() IndexingStatus
-    }
-    
-    class SearchRequest {
-        -query: String
-        -searchType: SearchType
-        -maxResults: int
-        -similarityThreshold: double
-        -fileExtensions: Set~String~
-        -dateRange: DateRange
-        -sortCriteria: SortCriteria
-        +builder() SearchRequestBuilder
-    }
-    
-    class SearchRequestBuilder {
-        -query: String
-        -searchType: SearchType
-        -maxResults: int
-        -similarityThreshold: double
-        -fileExtensions: Set~String~
-        -dateRange: DateRange
-        -sortCriteria: SortCriteria
-        +query(String query) SearchRequestBuilder
-        +searchType(SearchType type) SearchRequestBuilder
-        +maxResults(int max) SearchRequestBuilder
-        +similarityThreshold(double threshold) SearchRequestBuilder
-        +fileExtensions(Set extensions) SearchRequestBuilder
-        +dateRange(DateRange range) SearchRequestBuilder
-        +sortCriteria(SortCriteria criteria) SearchRequestBuilder
-        +build() SearchRequest
-    }
-    
-    IndexingStatus --> IndexingStatusBuilder : creates
-    SearchRequest --> SearchRequestBuilder : creates
-```
-
-### **7. Configuration Pattern - Centralized Settings**
-
-```mermaid
-classDiagram
-    class IndexingConfiguration {
-        <<@ConfigurationProperties>>
-        -supportedExtensions: Set~String~
-        -filePriorities: Map~String, Integer~
-        -chunkSize: int
-        -chunkOverlap: int
-        -maxConcurrentFiles: int
-        -cacheEnabled: boolean
-        -cacheFilePath: String
-        -indexingBatchSize: int
-        +getSupportedExtensions() Set~String~
-        +getFilePriorities() Map~String, Integer~
-        +getChunkSize() int
-        +getChunkOverlap() int
-        +getMaxConcurrentFiles() int
-        +isCacheEnabled() boolean
-        +getCacheFilePath() String
-        +getIndexingBatchSize() int
-        +getFilePriority(String extension) int
-        +isFileSupported(String extension) boolean
-    }
-    
-    class FileIndexingServiceImpl {
-        -indexingConfiguration: IndexingConfiguration
-        +indexDirectory(String path) void
-        -isFileSupported(File file) boolean
-        -getFilePriority(File file) int
-        -createDocumentChunks(File file) List~Document~
-    }
-    
-    class DocumentFactoryManager {
-        -indexingConfiguration: IndexingConfiguration
-        +createDocuments(File file) List~Document~
-        -shouldProcessFile(File file) boolean
-    }
-    
-    class HybridSearchService {
-        -indexingConfiguration: IndexingConfiguration
-        +search(SearchRequest request) List~SearchResult~
-        +getSupportedSearchTypes() List~SearchType~
-        -selectStrategy(SearchType type) SearchStrategy
-        -rankResults(List results) List~SearchResult~
-    }
-    
-    IndexingConfiguration --> FileIndexingServiceImpl : configures
-    IndexingConfiguration --> DocumentFactoryManager : configures
-    IndexingConfiguration --> HybridSearchService : configures
-```
-
-### **8. Service Layer Pattern - Business Logic Separation**
-
-```mermaid
-classDiagram
-    class FileIndexingService {
-        <<interface>>
-        +indexDirectory(String directoryPath) CompletableFuture~Void~
-        +getIndexingStatus() IndexingStatus
-        +pauseIndexing() void
-        +resumeIndexing() void
-        +cancelIndexing() void
-        +addObserver(IndexingStatusObserver observer) void
-        +removeObserver(IndexingStatusObserver observer) void
-    }
-    
-    class FileIndexingServiceImpl {
-        -vectorStore: VectorStore
-        -embeddingModel: EmbeddingModel
-        -documentFactoryManager: DocumentFactoryManager
-        -fileCacheRepository: FileCacheRepository
-        -indexingConfiguration: IndexingConfiguration
-        -observers: List~IndexingStatusObserver~
-        -virtualThreadExecutor: ExecutorService
-        -indexingStatus: IndexingStatus
-        +indexDirectory(String directoryPath) CompletableFuture~Void~
-        +getIndexingStatus() IndexingStatus
-        +pauseIndexing() void
-        +resumeIndexing() void
-        +cancelIndexing() void
-        +addObserver(IndexingStatusObserver observer) void
-        +removeObserver(IndexingStatusObserver observer) void
-        -indexPriorityFiles(List files) void
-        -indexRemainingFiles(List files) void
-        -processFile(File file) void
-        -updateStatus() void
-        -notifyObservers() void
-    }
-    
-    class HybridSearchService {
-        -searchStrategies: List~SearchStrategy~
-        -indexingConfiguration: IndexingConfiguration
-        +search(SearchRequest request) List~SearchResult~
-        +getSupportedSearchTypes() List~SearchType~
-        -selectStrategy(SearchType type) SearchStrategy
-        -rankResults(List results) List~SearchResult~
-    }
-    
-    class SearchCLI {
-        -fileIndexingService: FileIndexingService
-        -hybridSearchService: HybridSearchService
-        +startInteractiveMode() void
-        -handleUserInput() void
-        -displaySearchResults() void
-    }
-    
-    FileIndexingService <|.. FileIndexingServiceImpl
-    SearchCLI --> FileIndexingService : uses
-    SearchCLI --> HybridSearchService : uses
-    FileIndexingServiceImpl --> DocumentFactoryManager : uses
-    FileIndexingServiceImpl --> FileCacheRepository : uses
-    HybridSearchService --> SearchStrategy : uses
-```
-
-### **9. Overall System Architecture**
-
-```mermaid
-graph TB
-    subgraph "Presentation Layer"
-        CLI[SearchCLI]
-        CMD[Command Objects]
+    loop For each file in directory
+        IndexSvc->>Cache: isFileModified(file)
+        alt File is new or modified
+            Cache-->>IndexSvc: true
+            IndexSvc->>IndexSvc: queueForIndexing(file)
+        else File unchanged
+            Cache-->>IndexSvc: false
+            Note over IndexSvc: Skip processing
+        end
     end
     
-    subgraph "Service Layer"
-        IS[FileIndexingService]
-        HS[HybridSearchService]
-        FS[FileSearchService]
+    Note over IndexSvc,Observer: Background Processing with Status Updates
+    IndexSvc->>Observer: onStatusUpdate(status)
+    Observer->>CLI: displayStatusUpdate(status)
+    CLI->>User: Show progress information
+    
+    loop Batch processing files
+        IndexSvc->>QdrantSvc: processFileChunks(file)
+        QdrantSvc->>QdrantSvc: extractText(file)
+        QdrantSvc->>QdrantSvc: generateEmbeddings(text)
+        QdrantSvc->>QdrantSvc: storeVectors(embeddings)
+        QdrantSvc-->>IndexSvc: Processing complete
+        IndexSvc->>Cache: updateFileCache(file)
+        IndexSvc->>Observer: onStatusUpdate(updatedStatus)
+        Observer->>CLI: displayStatusUpdate(updatedStatus)
     end
     
-    subgraph "Strategy Layer"
-        SS[SemanticSearchStrategy]
-        TS[TextSearchStrategy]
-        NLS[NaturalLanguageSearchStrategy]
+    IndexSvc->>Observer: onIndexingComplete(finalStatus)
+    Observer->>CLI: displayCompletionMessage()
+    CLI->>User: Show indexing completed
+    
+    Note over User,Observer: Search Operation Flow
+    User->>CLI: Select search option
+    CLI->>User: Prompt for search query
+    User->>CLI: Provide search query and type
+    CLI->>SearchSvc: search(searchRequest)
+    
+    SearchSvc->>SearchStrat: findStrategy(searchType)
+    SearchStrat-->>SearchSvc: Return appropriate strategy
+    
+    alt Semantic Search
+        SearchSvc->>SearchStrat: search(semanticQuery)
+        SearchStrat->>QdrantSvc: vectorSearch(queryEmbedding)
+        QdrantSvc-->>SearchStrat: Return vector results
+    else Text Search
+        SearchSvc->>SearchStrat: search(textQuery)
+        SearchStrat->>SearchStrat: performTextSearch(query)
+    else Natural Language Search
+        SearchSvc->>SearchStrat: search(nlQuery)
+        SearchStrat->>SearchStrat: processNaturalLanguageQuery()
+        SearchStrat->>SearchStrat: delegateToSemanticSearch()
     end
     
-    subgraph "Factory Layer"
-        DFM[DocumentFactoryManager]
-        TDF[TextDocumentFactory]
-        PDF[PdfDocumentFactory]
-    end
+    SearchStrat-->>SearchSvc: Return search results
+    SearchSvc->>SearchSvc: rankAndMergeResults()
+    SearchSvc-->>CLI: Return formatted results
+    CLI->>User: Display search results
     
-    subgraph "Repository Layer"
-        FCR[FileCacheRepository]
-        VDB[(Vector Database)]
-        CACHE[(File Cache)]
-    end
-    
-    subgraph "Configuration Layer"
-        IC[IndexingConfiguration]
-        EC[EnvironmentConfig]
-    end
-    
-    subgraph "Observer Layer"
-        OBS[Status Observers]
-        METRICS[Metrics Collector]
-    end
-    
-    CLI --> CMD
-    CLI --> IS
-    CLI --> HS
-    CLI -.-> OBS
-    
-    IS --> DFM
-    IS --> FCR
-    IS -.-> OBS
-    
-    HS --> SS
-    HS --> TS
-    HS --> NLS
-    
-    DFM --> TDF
-    DFM --> PDF
-    
-    SS --> VDB
-    TS --> FS
-    FCR --> CACHE
-    
-    IC --> IS
-    IC --> HS
-    IC --> DFM
-    
-    OBS --> METRICS
-    
-    style CLI fill:#e1f5fe
-    style IS fill:#f3e5f5
-    style HS fill:#f3e5f5
-    style SS fill:#e8f5e8
-    style DFM fill:#fff3e0
-    style FCR fill:#fce4ec
-    style IC fill:#f1f8e9
-    style OBS fill:#e0f2f1
+    Note over User,Observer: Status Monitoring Flow
+    User->>CLI: Select "View Status"
+    CLI->>IndexSvc: getIndexingStatus()
+    IndexSvc->>IndexSvc: calculateCurrentMetrics()
+    IndexSvc->>QdrantSvc: getCollectionInfo()
+    QdrantSvc-->>IndexSvc: Return collection stats
+    IndexSvc-->>CLI: Return status information
+    CLI->>CLI: formatStatusDisplay()
+    CLI->>User: Display detailed status
 ```
 
-### **10. Pattern Interaction Flow**
+### **Error Handling and Recovery Flow**
 
 ```mermaid
 sequenceDiagram
     participant CLI as SearchCLI
-    participant CMD as IndexingStatusCommand
-    participant IS as FileIndexingService
-    participant DFM as DocumentFactoryManager
-    participant TDF as TextDocumentFactory
-    participant FCR as FileCacheRepository
-    participant OBS as StatusObserver
-    participant VS as VectorStore
+    participant IndexSvc as FileIndexingService
+    participant QdrantSvc as QdrantDocumentService
+    participant Cache as FileCacheRepository
+    participant Observer as StatusObserver
+
+    Note over CLI,Observer: Error Scenarios and Recovery
     
-    CLI->>CMD: execute("status")
-    CMD->>IS: getIndexingStatus()
+    CLI->>IndexSvc: indexDirectory(invalidPath)
+    IndexSvc->>IndexSvc: validateDirectory(path)
+    alt Directory doesn't exist
+        IndexSvc-->>CLI: DirectoryNotFoundException
+        CLI->>CLI: handleDirectoryError()
+        CLI->>CLI: showErrorMessage()
+        CLI->>CLI: promptForValidPath()
+    end
     
-    Note over CLI,VS: Indexing Process
-    CLI->>IS: indexDirectory("/project/src")
-    IS->>FCR: loadCache()
-    IS->>DFM: createDocuments(file)
-    DFM->>TDF: createDocuments(file)
-    TDF-->>DFM: List<Document>
-    DFM-->>IS: List<Document>
-    IS->>VS: add(documents)
-    IS->>FCR: saveIndexedFile(filePath)
-    IS->>OBS: onStatusUpdate(status)
-    OBS-->>CLI: displayStatusUpdate()
+    IndexSvc->>QdrantSvc: processFile(corruptedFile)
+    QdrantSvc->>QdrantSvc: extractText(file)
+    alt File processing fails
+        QdrantSvc-->>IndexSvc: FileProcessingException
+        IndexSvc->>IndexSvc: incrementFailedCount()
+        IndexSvc->>Cache: markFileAsFailed(file)
+        IndexSvc->>Observer: onStatusUpdate(statusWithError)
+        Observer->>CLI: displayErrorInStatus()
+    end
     
-    Note over CLI,VS: Search Process  
-    CLI->>IS: search(request)
-    IS->>DFM: findStrategy(SEMANTIC)
-    DFM-->>IS: SemanticSearchStrategy
-    IS->>VS: similaritySearch(query)
-    VS-->>IS: List<SearchResult>
-    IS-->>CLI: List<SearchResult>
+    CLI->>QdrantSvc: search(query)
+    QdrantSvc->>QdrantSvc: performVectorSearch()
+    alt Qdrant collection not found
+        QdrantSvc-->>CLI: QdrantException("Collection not found")
+        CLI->>CLI: handleQdrantError()
+        CLI->>CLI: showNoIndexMessage()
+        CLI->>CLI: promptForIndexing()
+    end
+    
+    IndexSvc->>Cache: loadCache()
+    Cache->>Cache: readCacheFile()
+    alt Cache file corrupted
+        Cache-->>IndexSvc: CacheCorruptedException
+        IndexSvc->>Cache: rebuildCache()
+        IndexSvc->>Observer: onStatusUpdate(rebuildingStatus)
+        Observer->>CLI: showCacheRebuildMessage()
+    end
 ```
 
-These UML diagrams provide a comprehensive view of all the design patterns implemented in the refactored codebase, showing:
+## 🏗️ Deployment Diagrams
 
-1. **Factory Pattern**: Document creation with extensible factories
-2. **Repository Pattern**: File cache management with persistent storage
-3. **Strategy Pattern**: Pluggable search implementations
-4. **Observer Pattern**: Real-time status updates and notifications
-5. **Command Pattern**: CLI command structure and execution
-6. **Builder Pattern**: Fluent object construction for complex types
-7. **Configuration Pattern**: Centralized, externalized settings
-8. **Service Layer Pattern**: Business logic separation and dependency injection
-9. **Overall Architecture**: System-wide component interactions
-10. **Pattern Interactions**: Sequence diagram showing how patterns work together
+### **System Architecture and Component Deployment**
 
-Each pattern is designed to enhance maintainability, extensibility, and testability of the codebase while following SOLID principles and Spring Boot best practices.
+```mermaid
+graph TB
+    subgraph "User Environment 💻"
+        USER[👤 Developer]
+        TERMINAL[🖥️ Terminal/CLI]
+        IDE[💻 IDE/VS Code]
+        WORKSPACE[📁 Code Workspace]
+    end
+
+    subgraph "Local Machine 🖥️"
+        subgraph "Spring Boot Application 🚀"
+            CLI_APP[🎛️ SearchCLI<br/>Interactive Menu]
+            SPRING_BOOT[⚙️ Spring Boot Container<br/>Port: 8080]
+            
+            subgraph "Service Layer 🔧"
+                INDEX_SVC[📚 FileIndexingService<br/>Virtual Thread Pool]
+                SEARCH_SVC[🔍 HybridSearchService<br/>Multi-Strategy Search]
+                CACHE_SVC[💾 FileCacheRepository<br/>Local File Cache]
+            end
+            
+            subgraph "Configuration 📋"
+                CONFIG[⚙️ IndexingConfiguration<br/>application.properties]
+                ENV_CONFIG[🌍 Environment Variables<br/>.env file]
+            end
+        end
+        
+        subgraph "Ollama AI Platform 🤖"
+            OLLAMA_SERVER[🤖 Ollama Server<br/>Port: 11434]
+            EMBEDDING_MODEL[📊 nomic-embed-text<br/>768D Embeddings]
+            CHAT_MODEL[💬 codellama:7b<br/>Natural Language]
+        end
+        
+        subgraph "Local Storage 💾"
+            FILE_CACHE[📄 File Cache<br/>.indexer-cache.json]
+            LOG_FILES[📝 Application Logs<br/>logs/]
+            TEMP_FILES[🗂️ Temporary Files<br/>temp/]
+        end
+    end
+
+    subgraph "Cloud Infrastructure ☁️"
+        subgraph "Qdrant Cloud 🌐"
+            QDRANT_CLUSTER[🗄️ Qdrant Vector DB<br/>Cloud Cluster]
+            VECTOR_STORE[📊 Vector Collections<br/>768D Embeddings]
+            METADATA_STORE[📋 Document Metadata<br/>File Paths & Content]
+        end
+    end
+
+    subgraph "External Resources 🌍"
+        GITHUB[📚 GitHub Repositories<br/>Source Code]
+        DOCS[📖 Documentation<br/>Markdown/Text Files]
+        CONFIG_FILES[⚙️ Configuration Files<br/>YAML/Properties/JSON]
+    end
+
+    %% User Interactions
+    USER --> TERMINAL
+    USER --> IDE
+    TERMINAL --> CLI_APP
+    IDE --> WORKSPACE
+
+    %% Application Flow
+    CLI_APP --> INDEX_SVC
+    CLI_APP --> SEARCH_SVC
+    INDEX_SVC --> CACHE_SVC
+    SEARCH_SVC --> INDEX_SVC
+    
+    %% Configuration
+    SPRING_BOOT --> CONFIG
+    CONFIG --> ENV_CONFIG
+    
+    %% AI Model Integration
+    INDEX_SVC -.->|HTTP/REST| OLLAMA_SERVER
+    SEARCH_SVC -.->|HTTP/REST| OLLAMA_SERVER
+    OLLAMA_SERVER --> EMBEDDING_MODEL
+    OLLAMA_SERVER --> CHAT_MODEL
+    
+    %% Vector Database
+    INDEX_SVC -.->|HTTPS/gRPC| QDRANT_CLUSTER
+    SEARCH_SVC -.->|HTTPS/gRPC| QDRANT_CLUSTER
+    QDRANT_CLUSTER --> VECTOR_STORE
+    QDRANT_CLUSTER --> METADATA_STORE
+    
+    %% Local Storage
+    CACHE_SVC --> FILE_CACHE
+    SPRING_BOOT --> LOG_FILES
+    INDEX_SVC --> TEMP_FILES
+    
+    %% Data Sources
+    WORKSPACE --> GITHUB
+    WORKSPACE --> DOCS
+    WORKSPACE --> CONFIG_FILES
+    INDEX_SVC --> WORKSPACE
+
+    %% Styling
+    style USER fill:#e1f5fe
+    style CLI_APP fill:#f3e5f5
+    style SPRING_BOOT fill:#e8f5e8
+    style OLLAMA_SERVER fill:#fff3e0
+    style QDRANT_CLUSTER fill:#fce4ec
+    style WORKSPACE fill:#f1f8e9
+```
+
+### **Network Communication and Data Flow**
+
+```mermaid
+graph LR
+    subgraph "Local Development Environment"
+        subgraph "Spring Boot Application:8080"
+            CLI[🎛️ CLI Interface]
+            APP[🚀 Spring Boot App]
+            CACHE[💾 Local Cache]
+        end
+        
+        subgraph "Ollama AI:11434"
+            OLLAMA[🤖 Ollama API]
+            MODELS[📊 AI Models]
+        end
+    end
+    
+    subgraph "Cloud Services"
+        QDRANT[☁️ Qdrant Cloud<br/>443/HTTPS]
+        CDN[🌐 Model CDN<br/>Ollama Registry]
+    end
+    
+    subgraph "File System"
+        WORKSPACE[📁 Code Workspace]
+        CACHE_FILE[📄 .indexer-cache.json]
+        LOGS[📝 Application Logs]
+    end
+
+    %% API Communications
+    CLI -.->|REST API| APP
+    APP -.->|HTTP POST<br/>Embeddings| OLLAMA
+    APP -.->|HTTPS<br/>Vector Ops| QDRANT
+    
+    %% Data Persistence
+    APP --> CACHE_FILE
+    APP --> LOGS
+    APP --> WORKSPACE
+    CACHE --> CACHE_FILE
+    
+    %% Model Management
+    OLLAMA -.->|Model Download<br/>HTTPS| CDN
+    
+    %% Data Flow Labels
+    APP -.->|"📊 Store Vectors<br/>📋 Query Metadata"| QDRANT
+    OLLAMA -.->|"🔄 768D Embeddings<br/>💬 Chat Responses"| APP
+    WORKSPACE -.->|"📄 File Content<br/>📂 Directory Scan"| APP
+```
+
+### **Deployment Architecture by Environment**
+
+```mermaid
+graph TB
+    subgraph "Development Environment 🛠️"
+        subgraph "Developer Workstation"
+            DEV_IDE[💻 IDE/Terminal]
+            DEV_SPRING[🚀 Spring Boot Dev]
+            DEV_OLLAMA[🤖 Ollama Local]
+            DEV_CACHE[💾 Local Cache]
+        end
+        
+        DEV_IDE --> DEV_SPRING
+        DEV_SPRING --> DEV_OLLAMA
+        DEV_SPRING --> DEV_CACHE
+        DEV_SPRING -.->|HTTPS| QDRANT_DEV[☁️ Qdrant Dev Cluster]
+    end
+    
+    subgraph "Production Environment 🚀"
+        subgraph "Production Server"
+            PROD_CLI[🎛️ Production CLI]
+            PROD_SPRING[⚙️ Spring Boot Prod]
+            PROD_OLLAMA[🤖 Ollama Server]
+            PROD_CACHE[💾 Persistent Cache]
+            PROD_LOGS[📝 Centralized Logs]
+        end
+        
+        PROD_CLI --> PROD_SPRING
+        PROD_SPRING --> PROD_OLLAMA
+        PROD_SPRING --> PROD_CACHE
+        PROD_SPRING --> PROD_LOGS
+        PROD_SPRING -.->|HTTPS| QDRANT_PROD[☁️ Qdrant Prod Cluster]
+    end
+    
+    subgraph "CI/CD Environment 🔄"
+        subgraph "Build Pipeline"
+            CI_BUILD[🔨 Maven Build]
+            CI_TEST[🧪 Unit Tests]
+            CI_PACKAGE[📦 JAR Package]
+            CI_DEPLOY[🚀 Deployment]
+        end
+        
+        CI_BUILD --> CI_TEST
+        CI_TEST --> CI_PACKAGE
+        CI_PACKAGE --> CI_DEPLOY
+        CI_DEPLOY -.-> PROD_SPRING
+    end
+    
+    subgraph "Monitoring & Observability 📊"
+        METRICS[📈 Application Metrics]
+        HEALTH[💚 Health Checks]
+        ALERTS[🚨 Alert System]
+        
+        PROD_SPRING --> METRICS
+        PROD_SPRING --> HEALTH
+        HEALTH --> ALERTS
+    end
+    
+    %% Environment Connections
+    DEV_SPRING -.->|"Promote to Prod"| CI_BUILD
+    METRICS -.->|"Feedback"| DEV_SPRING
+```
+
+### **Security and Access Control**
+
+```mermaid
+graph TB
+    subgraph "Security Layers 🔒"
+        subgraph "Authentication & Authorization"
+            ENV_VARS[🔐 Environment Variables<br/>API Keys & Secrets]
+            API_KEYS[🗝️ Qdrant API Key<br/>Encrypted Storage]
+            SSL_CERTS[📜 SSL Certificates<br/>HTTPS/TLS 1.3]
+        end
+        
+        subgraph "Network Security"
+            FIREWALL[🛡️ Local Firewall<br/>Port Restrictions]
+            VPN[🌐 VPN Connection<br/>Secure Tunneling]
+            RATE_LIMIT[⏱️ Rate Limiting<br/>API Call Throttling]
+        end
+        
+        subgraph "Data Protection"
+            ENCRYPTION[🔒 Data Encryption<br/>At Rest & In Transit]
+            BACKUP[💾 Encrypted Backups<br/>Cache & Logs]
+            AUDIT[📋 Audit Logging<br/>Access Tracking]
+        end
+    end
+    
+    subgraph "Application Security"
+        INPUT_VALID[✅ Input Validation<br/>Search Queries]
+        ERROR_HANDLE[🚫 Error Handling<br/>No Data Leakage]
+        SECURE_CONFIG[⚙️ Secure Configuration<br/>Default Deny]
+    end
+    
+    %% Security Flow
+    ENV_VARS --> API_KEYS
+    API_KEYS --> SSL_CERTS
+    SSL_CERTS --> ENCRYPTION
+    
+    FIREWALL --> VPN
+    VPN --> RATE_LIMIT
+    
+    ENCRYPTION --> BACKUP
+    BACKUP --> AUDIT
+    
+    INPUT_VALID --> ERROR_HANDLE
+    ERROR_HANDLE --> SECURE_CONFIG
+    
+    %% Cross-cutting Security
+    ENV_VARS -.-> INPUT_VALID
+    RATE_LIMIT -.-> ERROR_HANDLE
+    AUDIT -.-> SECURE_CONFIG
+```
+
+### **Scalability and Performance Architecture**
+
+```mermaid
+graph TB
+    subgraph "Performance Optimization 🚀"
+        subgraph "Concurrent Processing"
+            VIRTUAL_THREADS[🧵 Virtual Threads<br/>JDK 21 Fibers]
+            THREAD_POOL[🏊‍♂️ Thread Pool<br/>Configurable Size]
+            ASYNC_PROC[⚡ Async Processing<br/>Non-blocking I/O]
+        end
+        
+        subgraph "Caching Strategy"
+            L1_CACHE[💾 L1: Memory Cache<br/>Hot Data]
+            L2_CACHE[📄 L2: File Cache<br/>Persistent Storage]
+            L3_CACHE[☁️ L3: Vector Cache<br/>Qdrant Optimization]
+        end
+        
+        subgraph "Resource Management"
+            MEMORY_OPT[🧠 Memory Optimization<br/>JVM Tuning]
+            DISK_OPT[💿 Disk Optimization<br/>Sequential I/O]
+            NETWORK_OPT[🌐 Network Optimization<br/>Connection Pooling]
+        end
+    end
+    
+    subgraph "Scaling Capabilities 📈"
+        subgraph "Horizontal Scaling"
+            LOAD_BALANCE[⚖️ Load Balancing<br/>Multiple Instances]
+            DISTRIBUTED[🌍 Distributed Processing<br/>Cluster Mode]
+            QUEUE[📋 Job Queuing<br/>Background Tasks]
+        end
+        
+        subgraph "Vertical Scaling"
+            CPU_SCALE[⚡ CPU Scaling<br/>Multi-core Usage]
+            RAM_SCALE[🧠 Memory Scaling<br/>Heap Optimization]
+            STORAGE_SCALE[💾 Storage Scaling<br/>SSD Performance]
+        end
+    end
+    
+    %% Performance Connections
+    VIRTUAL_THREADS --> ASYNC_PROC
+    ASYNC_PROC --> THREAD_POOL
+    
+    L1_CACHE --> L2_CACHE
+    L2_CACHE --> L3_CACHE
+    
+    MEMORY_OPT --> DISK_OPT
+    DISK_OPT --> NETWORK_OPT
+    
+    %% Scaling Connections
+    LOAD_BALANCE --> DISTRIBUTED
+    DISTRIBUTED --> QUEUE
+    
+    CPU_SCALE --> RAM_SCALE
+    RAM_SCALE --> STORAGE_SCALE
+    
+    %% Cross-cutting Optimizations
+    VIRTUAL_THREADS -.-> CPU_SCALE
+    L1_CACHE -.-> RAM_SCALE
+    NETWORK_OPT -.-> DISTRIBUTED
+```
+
+These deployment diagrams provide a comprehensive view of:
+
+1. **System Architecture**: Complete component deployment across user environment, local machine, and cloud infrastructure
+2. **Network Communication**: Data flow and API communications between services
+3. **Multi-Environment Support**: Development, production, and CI/CD pipeline architectures
+4. **Security Architecture**: Comprehensive security layers and access controls
+5. **Performance & Scalability**: Optimization strategies and scaling capabilities
+
+The diagrams show how the Misoto Codebase Indexer integrates with:
+- **Local Development Tools**: IDEs, terminals, and file systems
+- **AI Platforms**: Ollama for embeddings and natural language processing
+- **Cloud Services**: Qdrant Cloud for vector storage and search
+- **Infrastructure**: Security, monitoring, and deployment pipelines
+
+## 👥 Use Case Diagrams
+
+### **Primary Use Cases and Actor Interactions**
+
+```mermaid
+graph TB
+    subgraph "Misoto Codebase Indexer System"
+        subgraph "Search Use Cases 🔍"
+            UC1[Search Code with<br/>Natural Language]
+            UC2[Perform Semantic<br/>Code Search]
+            UC3[Execute Text-based<br/>Search]
+            UC4[Advanced Multi-filter<br/>Search]
+            UC5[Browse Search<br/>Results]
+            UC6[Export Search<br/>Results]
+        end
+        
+        subgraph "Indexing Use Cases 📚"
+            UC7[Index Codebase<br/>Directory]
+            UC8[Monitor Indexing<br/>Progress]
+            UC9[Configure Indexing<br/>Settings]
+            UC10[Manage File<br/>Cache]
+            UC11[Handle Indexing<br/>Errors]
+            UC12[Validate File<br/>Types]
+        end
+        
+        subgraph "Configuration Use Cases ⚙️"
+            UC13[Setup AI Models<br/>(Ollama)]
+            UC14[Configure Vector<br/>Database (Qdrant)]
+            UC15[Manage Environment<br/>Variables]
+            UC16[Customize File<br/>Priorities]
+            UC17[Set Performance<br/>Parameters]
+        end
+        
+        subgraph "Monitoring Use Cases 📊"
+            UC18[View System<br/>Status]
+            UC19[Track Performance<br/>Metrics]
+            UC20[Monitor Resource<br/>Usage]
+            UC21[Handle System<br/>Errors]
+            UC22[Generate Status<br/>Reports]
+        end
+        
+        subgraph "Management Use Cases 🔧"
+            UC23[Clear System<br/>Cache]
+            UC24[Restart Indexing<br/>Process]
+            UC25[Change Target<br/>Directory]
+            UC26[Backup/Restore<br/>Index Data]
+            UC27[Update System<br/>Configuration]
+        end
+    end
+    
+    subgraph "External Systems 🌐"
+        EXT1[Ollama AI Platform]
+        EXT2[Qdrant Cloud Service]
+        EXT3[File System]
+        EXT4[Git Repositories]
+        EXT5[IDE Integration]
+    end
+    
+    subgraph "Actors 👥"
+        DEV[👨‍💻 Software Developer]
+        ADMIN[👨‍🔧 System Administrator]
+        ANALYST[👨‍💼 Code Analyst]
+        RESEARCHER[👩‍🔬 Researcher]
+        TEAM_LEAD[👨‍💼 Team Lead]
+    end
+    
+    %% Developer Use Cases
+    DEV --> UC1
+    DEV --> UC2
+    DEV --> UC3
+    DEV --> UC4
+    DEV --> UC5
+    DEV --> UC7
+    DEV --> UC8
+    DEV --> UC25
+    
+    %% System Administrator Use Cases
+    ADMIN --> UC9
+    ADMIN --> UC10
+    ADMIN --> UC13
+    ADMIN --> UC14
+    ADMIN --> UC15
+    ADMIN --> UC16
+    ADMIN --> UC17
+    ADMIN --> UC23
+    ADMIN --> UC24
+    ADMIN --> UC26
+    ADMIN --> UC27
+    
+    %% Code Analyst Use Cases
+    ANALYST --> UC1
+    ANALYST --> UC2
+    ANALYST --> UC4
+    ANALYST --> UC6
+    ANALYST --> UC18
+    ANALYST --> UC22
+    
+    %% Researcher Use Cases
+    RESEARCHER --> UC2
+    RESEARCHER --> UC4
+    RESEARCHER --> UC6
+    RESEARCHER --> UC19
+    RESEARCHER --> UC22
+    
+    %% Team Lead Use Cases
+    TEAM_LEAD --> UC18
+    TEAM_LEAD --> UC19
+    TEAM_LEAD --> UC20
+    TEAM_LEAD --> UC22
+    TEAM_LEAD --> UC27
+    
+    %% System Dependencies
+    UC1 -.-> EXT1
+    UC2 -.-> EXT1
+    UC2 -.-> EXT2
+    UC7 -.-> EXT3
+    UC7 -.-> EXT4
+    UC13 -.-> EXT1
+    UC14 -.-> EXT2
+    UC25 -.-> EXT3
+    UC5 -.-> EXT5
+    
+    %% Use Case Relationships
+    UC7 --> UC8
+    UC8 --> UC11
+    UC9 --> UC16
+    UC9 --> UC17
+    UC13 --> UC14
+    UC18 --> UC19
+    UC19 --> UC20
+    UC23 --> UC24
+    
+    %% Styling
+    style DEV fill:#e1f5fe
+    style ADMIN fill:#f3e5f5
+    style ANALYST fill:#e8f5e8
+    style RESEARCHER fill:#fff3e0
+    style TEAM_LEAD fill:#fce4ec
+```
+
+### **Detailed Use Case Scenarios**
+
+```mermaid
+graph LR
+    subgraph "Search Workflow 🔍"
+        subgraph "Natural Language Search"
+            NL1[Enter Query:<br/>"Find authentication logic"]
+            NL2[AI Processing:<br/>Query Understanding]
+            NL3[Context Generation:<br/>Search Terms]
+            NL4[Vector Search:<br/>Semantic Matching]
+            NL5[Results Ranking:<br/>Relevance Scoring]
+            NL6[Display Results:<br/>Code Snippets]
+            
+            NL1 --> NL2 --> NL3 --> NL4 --> NL5 --> NL6
+        end
+        
+        subgraph "Semantic Search"
+            SEM1[Enter Technical Query:<br/>"repository pattern"]
+            SEM2[Set Similarity:<br/>Threshold 0.7]
+            SEM3[Generate Embeddings:<br/>768D Vectors]
+            SEM4[Vector Similarity:<br/>Search in Qdrant]
+            SEM5[Filter Results:<br/>By Similarity Score]
+            SEM6[Present Matches:<br/>With Context]
+            
+            SEM1 --> SEM2 --> SEM3 --> SEM4 --> SEM5 --> SEM6
+        end
+        
+        subgraph "Text Search"
+            TXT1[Enter Keywords:<br/>"@RestController"]
+            TXT2[Configure Options:<br/>Case Sensitivity]
+            TXT3[Scan Files:<br/>Pattern Matching]
+            TXT4[Collect Matches:<br/>Line Numbers]
+            TXT5[Format Output:<br/>File Locations]
+            
+            TXT1 --> TXT2 --> TXT3 --> TXT4 --> TXT5
+        end
+    end
+    
+    subgraph "Indexing Workflow 📚"
+        subgraph "Initial Indexing"
+            IDX1[Select Directory:<br/>Choose Codebase]
+            IDX2[Scan Structure:<br/>File Discovery]
+            IDX3[Validate Files:<br/>Extension Check]
+            IDX4[Priority Sorting:<br/>Critical Files First]
+            IDX5[Batch Processing:<br/>Virtual Threads]
+            IDX6[Vector Generation:<br/>Embedding Creation]
+            IDX7[Store Vectors:<br/>Qdrant Upload]
+            IDX8[Update Cache:<br/>File Tracking]
+            
+            IDX1 --> IDX2 --> IDX3 --> IDX4 --> IDX5 --> IDX6 --> IDX7 --> IDX8
+        end
+        
+        subgraph "Incremental Indexing"
+            INC1[Monitor Changes:<br/>File Modification]
+            INC2[Check Cache:<br/>Comparison]
+            INC3[Queue Updates:<br/>Modified Files]
+            INC4[Background Process:<br/>Non-blocking]
+            INC5[Merge Vectors:<br/>Update Collection]
+            
+            INC1 --> INC2 --> INC3 --> INC4 --> INC5
+        end
+    end
+    
+    subgraph "Configuration Workflow ⚙️"
+        subgraph "System Setup"
+            CFG1[Install Ollama:<br/>AI Platform]
+            CFG2[Download Models:<br/>nomic-embed-text]
+            CFG3[Setup Qdrant:<br/>Cloud Account]
+            CFG4[Configure API:<br/>Keys & URLs]
+            CFG5[Test Connection:<br/>Verify Setup]
+            
+            CFG1 --> CFG2 --> CFG3 --> CFG4 --> CFG5
+        end
+        
+        subgraph "Performance Tuning"
+            PERF1[Set Thread Pool:<br/>Virtual Threads]
+            PERF2[Configure Cache:<br/>Size & Location]
+            PERF3[Adjust Batch Size:<br/>Processing Groups]
+            PERF4[Set Timeouts:<br/>Network Calls]
+            PERF5[Monitor Metrics:<br/>Performance Check]
+            
+            PERF1 --> PERF2 --> PERF3 --> PERF4 --> PERF5
+        end
+    end
+```
+
+### **Actor Responsibilities and Permissions**
+
+```mermaid
+graph TB
+    subgraph "Role-Based Access Control 🔐"
+        subgraph "Software Developer 👨‍💻"
+            DEV_PERM[Permissions:]
+            DEV_P1[• Search all indexed code]
+            DEV_P2[• View search results]
+            DEV_P3[• Index personal projects]
+            DEV_P4[• Monitor indexing status]
+            DEV_P5[• Change target directories]
+            DEV_P6[• Export search results]
+            
+            DEV_PERM --> DEV_P1
+            DEV_PERM --> DEV_P2
+            DEV_PERM --> DEV_P3
+            DEV_PERM --> DEV_P4
+            DEV_PERM --> DEV_P5
+            DEV_PERM --> DEV_P6
+        end
+        
+        subgraph "System Administrator 👨‍🔧"
+            ADMIN_PERM[Permissions:]
+            ADMIN_P1[• Full system configuration]
+            ADMIN_P2[• Manage AI model setup]
+            ADMIN_P3[• Configure Qdrant connection]
+            ADMIN_P4[• Set performance parameters]
+            ADMIN_P5[• Clear system cache]
+            ADMIN_P6[• Backup/restore data]
+            ADMIN_P7[• Monitor system health]
+            ADMIN_P8[• Manage user access]
+            
+            ADMIN_PERM --> ADMIN_P1
+            ADMIN_PERM --> ADMIN_P2
+            ADMIN_PERM --> ADMIN_P3
+            ADMIN_PERM --> ADMIN_P4
+            ADMIN_PERM --> ADMIN_P5
+            ADMIN_PERM --> ADMIN_P6
+            ADMIN_PERM --> ADMIN_P7
+            ADMIN_PERM --> ADMIN_P8
+        end
+        
+        subgraph "Code Analyst 👨‍💼"
+            ANALYST_PERM[Permissions:]
+            ANALYST_P1[• Advanced search features]
+            ANALYST_P2[• Generate analysis reports]
+            ANALYST_P3[• Export detailed results]
+            ANALYST_P4[• Access metrics dashboard]
+            ANALYST_P5[• Configure search filters]
+            ANALYST_P6[• View system statistics]
+            
+            ANALYST_PERM --> ANALYST_P1
+            ANALYST_PERM --> ANALYST_P2
+            ANALYST_PERM --> ANALYST_P3
+            ANALYST_PERM --> ANALYST_P4
+            ANALYST_PERM --> ANALYST_P5
+            ANALYST_PERM --> ANALYST_P6
+        end
+        
+        subgraph "Researcher 👩‍🔬"
+            RESEARCHER_PERM[Permissions:]
+            RESEARCHER_P1[• Semantic search access]
+            RESEARCHER_P2[• Pattern analysis tools]
+            RESEARCHER_P3[• Research data export]
+            RESEARCHER_P4[• Custom query building]
+            RESEARCHER_P5[• Similarity threshold tuning]
+            
+            RESEARCHER_PERM --> RESEARCHER_P1
+            RESEARCHER_PERM --> RESEARCHER_P2
+            RESEARCHER_PERM --> RESEARCHER_P3
+            RESEARCHER_PERM --> RESEARCHER_P4
+            RESEARCHER_PERM --> RESEARCHER_P5
+        end
+        
+        subgraph "Team Lead 👨‍💼"
+            LEAD_PERM[Permissions:]
+            LEAD_P1[• Team usage monitoring]
+            LEAD_P2[• Performance oversight]
+            LEAD_P3[• Resource planning]
+            LEAD_P4[• Usage reports generation]
+            LEAD_P5[• Configuration approval]
+            
+            LEAD_PERM --> LEAD_P1
+            LEAD_PERM --> LEAD_P2
+            LEAD_PERM --> LEAD_P3
+            LEAD_PERM --> LEAD_P4
+            LEAD_PERM --> LEAD_P5
+        end
+    end
+    
+    subgraph "Common Use Cases 🔄"
+        COMMON[All Users Can:]
+        COMMON_P1[• View help documentation]
+        COMMON_P2[• Access basic search]
+        COMMON_P3[• See indexing status]
+        COMMON_P4[• Use interactive CLI]
+        
+        COMMON --> COMMON_P1
+        COMMON --> COMMON_P2
+        COMMON --> COMMON_P3
+        COMMON --> COMMON_P4
+    end
+```
+
+### **System Integration Use Cases**
+
+```mermaid
+graph TB
+    subgraph "External System Integrations 🔌"
+        subgraph "Ollama AI Integration"
+            OLL1[Install Ollama Platform]
+            OLL2[Download AI Models]
+            OLL3[Start Ollama Service]
+            OLL4[Generate Embeddings]
+            OLL5[Process Natural Language]
+            OLL6[Monitor AI Performance]
+            
+            OLL1 --> OLL2 --> OLL3
+            OLL3 --> OLL4
+            OLL3 --> OLL5
+            OLL4 --> OLL6
+            OLL5 --> OLL6
+        end
+        
+        subgraph "Qdrant Cloud Integration"
+            QDR1[Create Qdrant Account]
+            QDR2[Setup Cloud Cluster]
+            QDR3[Configure API Access]
+            QDR4[Initialize Collections]
+            QDR5[Store Vector Data]
+            QDR6[Perform Vector Search]
+            QDR7[Manage Collection Metadata]
+            
+            QDR1 --> QDR2 --> QDR3 --> QDR4
+            QDR4 --> QDR5
+            QDR4 --> QDR6
+            QDR5 --> QDR7
+            QDR6 --> QDR7
+        end
+        
+        subgraph "File System Integration"
+            FS1[Access Local Directories]
+            FS2[Read Source Code Files]
+            FS3[Monitor File Changes]
+            FS4[Cache File Metadata]
+            FS5[Handle File Permissions]
+            FS6[Manage Temporary Files]
+            
+            FS1 --> FS2 --> FS3
+            FS2 --> FS4
+            FS3 --> FS4
+            FS1 --> FS5
+            FS2 --> FS6
+        end
+        
+        subgraph "IDE Integration"
+            IDE1[VS Code Extension]
+            IDE2[IntelliJ Plugin]
+            IDE3[Search Result Display]
+            IDE4[Code Navigation]
+            IDE5[Context Menu Integration]
+            
+            IDE1 --> IDE3 --> IDE4
+            IDE2 --> IDE3 --> IDE4
+            IDE3 --> IDE5
+        end
+    end
+    
+    subgraph "Actor Interactions with External Systems 👥🔌"
+        DEV_EXT[Developer] --> OLL4
+        DEV_EXT --> QDR6
+        DEV_EXT --> FS2
+        DEV_EXT --> IDE3
+        
+        ADMIN_EXT[Administrator] --> OLL1
+        ADMIN_EXT --> QDR2
+        ADMIN_EXT --> FS5
+        
+        ANALYST_EXT[Analyst] --> QDR7
+        ANALYST_EXT --> FS4
+        ANALYST_EXT --> IDE4
+        
+        RESEARCHER_EXT[Researcher] --> OLL5
+        RESEARCHER_EXT --> QDR6
+        
+        LEAD_EXT[Team Lead] --> OLL6
+        LEAD_EXT --> QDR7
+    end
+```
+
+### **Error Handling and Recovery Use Cases**
+
+```mermaid
+graph LR
+    subgraph "Error Scenarios and Recovery 🚨"
+        subgraph "Indexing Errors"
+            ERR1[File Access Denied]
+            ERR2[Corrupted File Content]
+            ERR3[Network Connection Lost]
+            ERR4[Qdrant Service Unavailable]
+            ERR5[Ollama Model Not Found]
+            ERR6[Insufficient Disk Space]
+            
+            REC1[Retry with Permissions]
+            REC2[Skip and Log Error]
+            REC3[Queue for Retry]
+            REC4[Switch to Offline Mode]
+            REC5[Download Missing Model]
+            REC6[Clean Temporary Files]
+            
+            ERR1 --> REC1
+            ERR2 --> REC2
+            ERR3 --> REC3
+            ERR4 --> REC4
+            ERR5 --> REC5
+            ERR6 --> REC6
+        end
+        
+        subgraph "Search Errors"
+            SERR1[No Results Found]
+            SERR2[Search Timeout]
+            SERR3[Invalid Query Syntax]
+            SERR4[Collection Not Initialized]
+            SERR5[AI Model Overloaded]
+            
+            SREC1[Suggest Alternative Queries]
+            SREC2[Extend Timeout Period]
+            SREC3[Provide Query Examples]
+            SREC4[Initialize Collection]
+            SREC5[Queue Request for Retry]
+            
+            SERR1 --> SREC1
+            SERR2 --> SREC2
+            SERR3 --> SREC3
+            SERR4 --> SREC4
+            SERR5 --> SREC5
+        end
+        
+        subgraph "System Errors"
+            SYSERR1[Configuration Missing]
+            SYSERR2[Cache Corruption]
+            SYSERR3[Memory Overflow]
+            SYSERR4[Thread Pool Exhaustion]
+            
+            SYSREC1[Load Default Config]
+            SYSREC2[Rebuild Cache]
+            SYSREC3[Restart with More Memory]
+            SYSREC4[Scale Thread Pool]
+            
+            SYSERR1 --> SYSREC1
+            SYSERR2 --> SYSREC2
+            SYSERR3 --> SYSREC3
+            SYSERR4 --> SYSREC4
+        end
+    end
+```
+
+The codebase has been refactored to implement several design patterns for better maintainability and extensibility:
+
+- **Command Pattern**: For encapsulating indexing status commands
+- **Strategy Pattern**: To define and switch between search algorithms
+- **Observer Pattern**: For notifying status updates to the CLI
+- **Factory Pattern**: To create document instances for indexing
+- **Repository Pattern**: For abstracting file cache operations
+- **Dependency Injection**: Using Spring's @Autowired for service dependencies
+
+### **Command Pattern Example**
+
+```java
+// Command.java - Command interface
+public interface Command {
+    void execute();
+}
+
+// IndexingStatusCommand.java - Concrete command
+public class IndexingStatusCommand implements Command {
+    private final IndexingService indexingService;
+
+    public IndexingStatusCommand(IndexingService indexingService) {
+        this.indexingService = indexingService;
+    }
+
+    @Override
+    public void execute() {
+        indexingService.displayStatus();
+    }
+}
+```
+
+### **Strategy Pattern Example**
+
+```java
+// SearchStrategy.java - Strategy interface
+public interface SearchStrategy {
+    List<SearchResult> search(String query, double threshold);
+}
+
+// SemanticSearchStrategy.java - Concrete strategy
+public class SemanticSearchStrategy implements SearchStrategy {
+    @Override
+    public List<SearchResult> search(String query, double threshold) {
+        // Implementation for semantic search using embeddings
+    }
+}
+```
+
+### **Observer Pattern Example**
+
+```java
+// IndexingStatusObserver.java - Observer interface
+public interface IndexingStatusObserver {
+    void onStatusUpdate(IndexingStatus status);
+}
+
+// CLI.java - Concrete observer
+public class CLI implements IndexingStatusObserver {
+    @Override
+    public void onStatusUpdate(IndexingStatus status) {
+        displayStatus(status);
+    }
+}
+```
+
+### **Factory Pattern Example**
+
+```java
+// DocumentFactory.java - Factory interface
+public interface DocumentFactory {
+    Document createDocument(File file);
+}
+
+// TextDocumentFactory.java - Concrete factory
+public class TextDocumentFactory implements DocumentFactory {
+    @Override
+    public Document createDocument(File file) {
+        return new TextDocument(file);
+    }
+}
+```
+
+### **Repository Pattern Example**
+
+```java
+// FileCacheRepository.java - Repository interface
+public interface FileCacheRepository {
+    void save(FileCacheEntry entry);
+    FileCacheEntry find(String filePath);
+}
+
+// FileCacheRepositoryImpl.java - Repository implementation
+public class FileCacheRepositoryImpl implements FileCacheRepository {
+    @Override
+    public void save(FileCacheEntry entry) {
+        // Save to cache
+    }
+
+    @Override
+    public FileCacheEntry find(String filePath) {
+        // Find from cache
+    }
+}
+```
+
+### **Dependency Injection Example**
+
+```java
+// SearchService.java - Service with dependencies
+@Service
+public class SearchService {
+    private final FileSearchService fileSearchService;
+    private final HybridSearchService hybridSearchService;
+
+    @Autowired
+    public SearchService(FileSearchService fileSearchService, HybridSearchService hybridSearchService) {
+        this.fileSearchService = fileSearchService;
+        this.hybridSearchService = hybridSearchService;
+    }
+
+    public List<SearchResult> search(String query) {
+        // Use injected services to perform search
+    }
+}
+```
