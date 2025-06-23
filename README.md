@@ -1067,45 +1067,43 @@ The diagrams show how the Misoto Codebase Indexer integrates with:
 graph TB
     subgraph "Misoto Codebase Indexer System"
         subgraph "Search Use Cases 🔍"
-            UC1[Search Code with<br/>Natural Language]
-            UC2[Perform Semantic<br/>Code Search]
-            UC3[Execute Text-based<br/>Search]
-            UC4[Advanced Multi-filter<br/>Search]
-            UC5[Browse Search<br/>Results]
-            UC6[Export Search<br/>Results]
+            UC1[Search Code with Natural Language]
+            UC2[Perform Semantic Code Search]
+            UC3[Execute Text-based Search]
+            UC4[Advanced Multi-filter Search]
+            UC5[Browse Search Results]
+            UC6[Export Search Results]
         end
         
         subgraph "Indexing Use Cases 📚"
-            UC7[Index Codebase<br/>Directory]
-            UC8[Monitor Indexing<br/>Progress]
-            UC9[Configure Indexing<br/>Settings]
-            UC10[Manage File<br/>Cache]
-            UC11[Handle Indexing<br/>Errors]
-            UC12[Validate File<br/>Types]
-        end
+            UC7[Index Codebase Directory]
+            UC8[Monitor Indexing Progress]
+            UC9[Configure Indexing Settings]
+            UC10[Manage File Cache]
+            UC11[Handle Indexing Errors]
+            UC12[Validate File Types]        end
         
         subgraph "Configuration Use Cases ⚙️"
-            UC13[Setup AI Models<br/>(Ollama)]
-            UC14[Configure Vector<br/>Database (Qdrant)]
-            UC15[Manage Environment<br/>Variables]
-            UC16[Customize File<br/>Priorities]
-            UC17[Set Performance<br/>Parameters]
-        end
+            UC13[Setup AI Models - Ollama]
+            UC14[Configure Vector Database - Qdrant]
+            UC15[Manage Environment Variables]
+            UC16[Customize File Priorities]
+            UC17[Set Performance Parameters]        end
         
         subgraph "Monitoring Use Cases 📊"
-            UC18[View System<br/>Status]
-            UC19[Track Performance<br/>Metrics]
-            UC20[Monitor Resource<br/>Usage]
-            UC21[Handle System<br/>Errors]
-            UC22[Generate Status<br/>Reports]
+            UC18[View System Status]
+            UC19[Track Performance Metrics]
+            UC20[Monitor Resource Usage]
+            UC21[Handle System Errors]
+            UC22[Generate Status Reports]
         end
         
         subgraph "Management Use Cases 🔧"
-            UC23[Clear System<br/>Cache]
-            UC24[Restart Indexing<br/>Process]
-            UC25[Change Target<br/>Directory]
-            UC26[Backup/Restore<br/>Index Data]
-            UC27[Update System<br/>Configuration]
+            UC23[Clear System Cache]
+            UC24[Restart Indexing Process]
+            UC25[Change Target Directory]
+            UC26[Backup/Restore Index Data]
+            UC27[Update System Configuration]
         end
     end
     
@@ -1205,33 +1203,33 @@ graph TB
 graph LR
     subgraph "Search Workflow 🔍"
         subgraph "Natural Language Search"
-            NL1[Enter Query:<br/>"Find authentication logic"]
-            NL2[AI Processing:<br/>Query Understanding]
-            NL3[Context Generation:<br/>Search Terms]
-            NL4[Vector Search:<br/>Semantic Matching]
-            NL5[Results Ranking:<br/>Relevance Scoring]
-            NL6[Display Results:<br/>Code Snippets]
+            NL1[Enter Query: Find authentication logic]
+            NL2[AI Processing: Query Understanding]
+            NL3[Context Generation: Search Terms]
+            NL4[Vector Search: Semantic Matching]
+            NL5[Results Ranking: Relevance Scoring]
+            NL6[Display Results: Code Snippets]
             
             NL1 --> NL2 --> NL3 --> NL4 --> NL5 --> NL6
         end
         
         subgraph "Semantic Search"
-            SEM1[Enter Technical Query:<br/>"repository pattern"]
-            SEM2[Set Similarity:<br/>Threshold 0.7]
-            SEM3[Generate Embeddings:<br/>768D Vectors]
-            SEM4[Vector Similarity:<br/>Search in Qdrant]
-            SEM5[Filter Results:<br/>By Similarity Score]
-            SEM6[Present Matches:<br/>With Context]
+            SEM1[Enter Technical Query: repository pattern]
+            SEM2[Set Similarity: Threshold 0.7]
+            SEM3[Generate Embeddings: 768D Vectors]
+            SEM4[Vector Similarity: Search in Qdrant]
+            SEM5[Filter Results: By Similarity Score]
+            SEM6[Present Matches: With Context]
             
             SEM1 --> SEM2 --> SEM3 --> SEM4 --> SEM5 --> SEM6
         end
         
         subgraph "Text Search"
-            TXT1[Enter Keywords:<br/>"@RestController"]
-            TXT2[Configure Options:<br/>Case Sensitivity]
-            TXT3[Scan Files:<br/>Pattern Matching]
-            TXT4[Collect Matches:<br/>Line Numbers]
-            TXT5[Format Output:<br/>File Locations]
+            TXT1[Enter Keywords: @RestController]
+            TXT2[Configure Options: Case Sensitivity]
+            TXT3[Scan Files: Pattern Matching]
+            TXT4[Collect Matches: Line Numbers]
+            TXT5[Format Output: File Locations]
             
             TXT1 --> TXT2 --> TXT3 --> TXT4 --> TXT5
         end
@@ -1239,24 +1237,24 @@ graph LR
     
     subgraph "Indexing Workflow 📚"
         subgraph "Initial Indexing"
-            IDX1[Select Directory:<br/>Choose Codebase]
-            IDX2[Scan Structure:<br/>File Discovery]
-            IDX3[Validate Files:<br/>Extension Check]
-            IDX4[Priority Sorting:<br/>Critical Files First]
-            IDX5[Batch Processing:<br/>Virtual Threads]
-            IDX6[Vector Generation:<br/>Embedding Creation]
-            IDX7[Store Vectors:<br/>Qdrant Upload]
-            IDX8[Update Cache:<br/>File Tracking]
+            IDX1[Select Directory: Choose Codebase]
+            IDX2[Scan Structure: File Discovery]
+            IDX3[Validate Files: Extension Check]
+            IDX4[Priority Sorting: Critical Files First]
+            IDX5[Batch Processing: Virtual Threads]
+            IDX6[Vector Generation: Embedding Creation]
+            IDX7[Store Vectors: Qdrant Upload]
+            IDX8[Update Cache: File Tracking]
             
             IDX1 --> IDX2 --> IDX3 --> IDX4 --> IDX5 --> IDX6 --> IDX7 --> IDX8
         end
         
         subgraph "Incremental Indexing"
-            INC1[Monitor Changes:<br/>File Modification]
-            INC2[Check Cache:<br/>Comparison]
-            INC3[Queue Updates:<br/>Modified Files]
-            INC4[Background Process:<br/>Non-blocking]
-            INC5[Merge Vectors:<br/>Update Collection]
+            INC1[Monitor Changes: File Modification]
+            INC2[Check Cache: Comparison]
+            INC3[Queue Updates: Modified Files]
+            INC4[Background Process: Non-blocking]
+            INC5[Merge Vectors: Update Collection]
             
             INC1 --> INC2 --> INC3 --> INC4 --> INC5
         end
@@ -1264,21 +1262,21 @@ graph LR
     
     subgraph "Configuration Workflow ⚙️"
         subgraph "System Setup"
-            CFG1[Install Ollama:<br/>AI Platform]
-            CFG2[Download Models:<br/>nomic-embed-text]
-            CFG3[Setup Qdrant:<br/>Cloud Account]
-            CFG4[Configure API:<br/>Keys & URLs]
-            CFG5[Test Connection:<br/>Verify Setup]
+            CFG1[Install Ollama: AI Platform]
+            CFG2[Download Models: nomic-embed-text]
+            CFG3[Setup Qdrant: Cloud Account]
+            CFG4[Configure API: Keys & URLs]
+            CFG5[Test Connection: Verify Setup]
             
             CFG1 --> CFG2 --> CFG3 --> CFG4 --> CFG5
         end
         
         subgraph "Performance Tuning"
-            PERF1[Set Thread Pool:<br/>Virtual Threads]
-            PERF2[Configure Cache:<br/>Size & Location]
-            PERF3[Adjust Batch Size:<br/>Processing Groups]
-            PERF4[Set Timeouts:<br/>Network Calls]
-            PERF5[Monitor Metrics:<br/>Performance Check]
+            PERF1[Set Thread Pool: Virtual Threads]
+            PERF2[Configure Cache: Size & Location]
+            PERF3[Adjust Batch Size: Processing Groups]
+            PERF4[Set Timeouts: Network Calls]
+            PERF5[Monitor Metrics: Performance Check]
             
             PERF1 --> PERF2 --> PERF3 --> PERF4 --> PERF5
         end
