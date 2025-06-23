@@ -162,16 +162,33 @@ public class IndexingService {
             System.err.println("⚠️ Warning: Could not initialize Qdrant collection: " + e.getMessage());
             System.err.println("💡 Make sure Ollama is running with nomic-embed-text model");
         }
-    }
-
-    private boolean checkCollectionExists() {
+    }    private boolean checkCollectionExists() {
         try {
             CollectionInfo info = qdrantClient.getCollectionInfoAsync(collectionName).get();
             return info != null;
+        } catch (java.util.concurrent.ExecutionException e) {
+            // Check if the error message indicates collection doesn't exist
+            String errorMessage = e.getMessage();
+            if (errorMessage != null && 
+                (errorMessage.contains("NOT_FOUND") || errorMessage.contains("doesn't exist"))) {
+                // Collection doesn't exist, this is expected
+                return false;
+            }
+            // Log other types of errors
+            System.err.println("⚠️ Warning: Error checking collection existence: " + e.getMessage());
+            return false;
         } catch (Exception e) {
+            // Check for collection not found in any exception
+            String errorMessage = e.getMessage();
+            if (errorMessage != null && 
+                (errorMessage.contains("NOT_FOUND") || errorMessage.contains("doesn't exist"))) {
+                return false;
+            }
+            // Log unexpected exceptions
+            System.err.println("⚠️ Warning: Unexpected error checking collection existence: " + e.getMessage());
             return false;
         }
-    }    private void createCollection() throws Exception {
+    }private void createCollection() throws Exception {
         // Create vector parameters for embeddings
         // nomic-embed-text produces 768-dimensional embeddings
         VectorParams vectorParams = VectorParams.newBuilder()
@@ -809,5 +826,79 @@ public class IndexingService {
         } catch (Exception e) {
             System.err.println("⚠️ Error removing deleted files from vector store: " + e.getMessage());
         }
+    }
+    
+    /**
+     * Restart the indexing process
+     */
+    public void restartIndexing() {
+        try {
+            System.out.println("🔄 Restarting indexing process...");
+            
+            // Reset state
+            indexingInProgress = false;
+            indexingComplete = false;
+            indexedFiles.set(0);
+            startTime.set(System.currentTimeMillis());
+            
+            // Clear progress tracking
+            //priorityFilesIndexed = false;
+            
+            // Start fresh indexing
+            startHybridIndexing();
+            
+            System.out.println("✅ Indexing restarted successfully");
+            
+        } catch (Exception e) {
+            System.err.println("❌ Failed to restart indexing: " + e.getMessage());
+            throw new RuntimeException("Failed to restart indexing", e);
+        }
+    }
+    
+    /**
+     * Clear cache and reindex all files
+     */
+    public void clearCacheAndReindex() {
+        try {
+            System.out.println("🗑️ Clearing cache and starting fresh indexing...");
+            
+            // Clear the cached file set
+            indexedFilePaths.clear();
+            
+            // Reset all counters
+            indexedFiles.set(0);
+            failedFiles.set(0);
+            skippedFiles.set(0);
+            fileTypeStatistics.clear();
+            skippedFileExtensions.clear();
+            
+            // Reset timing
+            startTime.set(System.currentTimeMillis());
+            
+            // Reset status flags
+            indexingInProgress = false;
+            indexingComplete = false;
+            //priorityFilesIndexed = false;
+            
+            // TODO: Clear vector store if possible
+            // Note: Qdrant doesn't have a simple "clear collection" API
+            // You would need to delete and recreate the collection
+            
+            // Start fresh indexing
+            startHybridIndexing();
+            
+            System.out.println("✅ Cache cleared and reindexing started");
+            
+        } catch (Exception e) {
+            System.err.println("❌ Failed to clear cache and reindex: " + e.getMessage());
+            throw new RuntimeException("Failed to clear cache and reindex", e);
+        }
+    }
+    
+    /**
+     * Get the current indexing directory
+     */
+    public String getCurrentIndexingDirectory() {
+        return indexingDirectory != null ? indexingDirectory : "Not set";
     }
 }

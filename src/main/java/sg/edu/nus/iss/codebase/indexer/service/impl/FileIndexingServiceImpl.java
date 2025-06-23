@@ -123,11 +123,9 @@ public class FileIndexingServiceImpl implements FileIndexingService {    private
         indexingPaused = false;
         System.out.println("▶️ Indexing resumed");
         notifyStatusUpdate();
-    }
-
-    @Override
+    }    @Override
     public IndexingStatus getIndexingStatus() {
-        long currentDuration = getCurrentIndexingDuration();
+        long currentDuration = getIndexingDuration();
         double speed = currentDuration > 0 ? (indexedFiles.get() * 1000.0) / currentDuration : 0.0;
         
         Map<String, Integer> fileStats = new HashMap<>();
@@ -439,11 +437,140 @@ public class FileIndexingServiceImpl implements FileIndexingService {    private
         String name = file.getName();
         int lastDot = name.lastIndexOf('.');
         return lastDot > 0 ? name.substring(lastDot) : "";
-    }
-
-    private long getCurrentIndexingDuration() {
+    }    private long getIndexingDuration() {
         if (startTime.get() == 0) return 0;
         return System.currentTimeMillis() - startTime.get();
+    }
+
+    // Public metrics methods for interface compliance
+    @Override
+    public long getCurrentIndexingDuration() {
+        return getIndexingDuration();
+    }    @Override
+    public long getEstimatedTotalDuration() {
+        if (totalFiles.get() == 0 || indexedFiles.get() == 0) return 0;
+        
+        long currentDuration = getIndexingDuration();
+        double progress = (double) indexedFiles.get() / totalFiles.get();
+        
+        if (progress > 0) {
+            return (long) (currentDuration / progress);
+        }
+        return 0;
+    }
+
+    @Override
+    public long getTotalIndexingDuration() {
+        if (indexingComplete) {
+            return getIndexingDuration();
+        }
+        return getIndexingDuration(); // Return current duration if still in progress
+    }
+
+    @Override
+    public double getIndexingSpeed() {
+        long duration = getIndexingDuration();
+        if (duration == 0) return 0.0;
+        
+        return (indexedFiles.get() * 1000.0) / duration; // files per second
+    }
+
+    @Override
+    public int getActiveVirtualThreads() {
+        return activeVirtualThreads.get();
+    }
+
+    @Override
+    public int getPeakVirtualThreads() {
+        return peakVirtualThreads.get();
+    }
+
+    @Override
+    public long getTotalTasksExecuted() {
+        return totalTasksExecuted.get();
+    }
+
+    @Override
+    public int getFailedFileCount() {
+        return failedFiles.get();
+    }
+
+    @Override
+    public int getSkippedFileCount() {
+        return skippedFiles.get();
+    }
+
+    @Override
+    public Map<String, Integer> getFileTypeStatistics() {
+        Map<String, Integer> stats = new HashMap<>();
+        fileTypeStatistics.forEach((type, count) -> stats.put(type, count.get()));
+        return stats;
+    }    @Override
+    public Map<String, Integer> getSkippedFileExtensions() {
+        Map<String, Integer> stats = new HashMap<>();
+        skippedFileExtensions.forEach((extension, count) -> stats.put(extension, count.get()));
+        return stats;
+    }
+
+    // Additional methods needed by HybridSearchService
+    @Override
+    public boolean isIndexingComplete() {
+        return indexingComplete;
+    }
+
+    @Override
+    public boolean isIndexingInProgress() {
+        return indexingInProgress;
+    }
+
+    @Override
+    public int getIndexedFileCount() {
+        return indexedFiles.get();
+    }
+
+    @Override
+    public int getTotalFileCount() {
+        return totalFiles.get();
+    }
+
+    @Override
+    public double getIndexingProgress() {
+        if (totalFiles.get() == 0) return 0.0;
+        return (double) indexedFiles.get() / totalFiles.get() * 100.0;
+    }
+
+    @Override
+    public void restartIndexing() {
+        // Reset state and start indexing again
+        indexingComplete = false;
+        indexingInProgress = false;
+        indexedFiles.set(0);
+        totalFiles.set(0);
+        
+        // Start indexing in current directory
+        startIndexing(indexingDirectory);
+    }
+
+    @Override
+    public void clearCacheAndReindex() {
+        // Clear all caches and statistics
+        fileTypeStatistics.clear();
+        skippedFileExtensions.clear();
+        failedFiles.set(0);
+        skippedFiles.set(0);
+        
+        // Reset cache repository
+        if (cacheRepository != null) {
+            cacheRepository.clearCache();
+        }
+        
+        // Restart indexing
+        restartIndexing();
+    }
+
+    @Override
+    public String getCurrentIndexingDirectory() {
+        return indexingDirectory;
     }
 
     // Observer pattern implementation

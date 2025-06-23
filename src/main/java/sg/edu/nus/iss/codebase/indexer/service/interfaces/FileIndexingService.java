@@ -36,8 +36,7 @@ public interface FileIndexingService {
      * @return Current indexing status
      */
     IndexingStatus getIndexingStatus();
-    
-    /**
+      /**
      * Set the indexing directory
      * @param directory The directory to index
      */
@@ -59,4 +58,26 @@ public interface FileIndexingService {
      * @param observer The observer to unregister
      */
     void removeStatusObserver(IndexingStatusObserver observer);
+      // Additional metrics methods for detailed status display
+    long getCurrentIndexingDuration();
+    long getEstimatedTotalDuration();
+    long getTotalIndexingDuration();
+    double getIndexingSpeed();
+    int getActiveVirtualThreads();
+    int getPeakVirtualThreads();
+    long getTotalTasksExecuted();
+    int getFailedFileCount();
+    int getSkippedFileCount();
+    java.util.Map<String, Integer> getFileTypeStatistics();
+    java.util.Map<String, Integer> getSkippedFileExtensions();
+    
+    // Additional methods needed by HybridSearchService
+    boolean isIndexingComplete();
+    boolean isIndexingInProgress();
+    int getIndexedFileCount();
+    int getTotalFileCount();
+    double getIndexingProgress();
+    void restartIndexing();
+    void clearCacheAndReindex();
+    String getCurrentIndexingDirectory();
 }

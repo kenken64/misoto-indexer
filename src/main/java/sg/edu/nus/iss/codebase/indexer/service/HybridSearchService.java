@@ -1,5 +1,7 @@
 package sg.edu.nus.iss.codebase.indexer.service;
 
+import sg.edu.nus.iss.codebase.indexer.dto.SearchRequest;
+import sg.edu.nus.iss.codebase.indexer.service.interfaces.FileIndexingService;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.VectorStore;
@@ -22,7 +24,7 @@ public class HybridSearchService {
     private FileSearchService fileSearchService;
 
     @Autowired
-    private IndexingService indexingService;
+    private FileIndexingService indexingService;
 
     /**
      * Hybrid search combining vector search with file-based fallback
@@ -130,30 +132,201 @@ public class HybridSearchService {
     }
 
     /**
+     * Perform advanced search based on SearchRequest
+     */
+    public HybridSearchResult performAdvancedSearch(SearchRequest request) {
+        System.out.println("🔍 Starting advanced search for: " + request.getQuery());
+        
+        List<SearchResult> vectorResults = new ArrayList<>();
+        List<FileSearchService.SearchResult> fileResults = new ArrayList<>();
+        String aiAnalysis = "";
+        boolean usedFallback = false;
+
+        try {
+            switch (request.getSearchType()) {
+                case SEMANTIC -> {
+                    System.out.println("🧠 Performing semantic search...");
+                    vectorResults = performSemanticSearch(request);
+                }
+                case TEXT -> {
+                    System.out.println("📝 Performing text search...");
+                    fileResults = performTextSearch(request);
+                }
+                case HYBRID -> {
+                    System.out.println("🔄 Performing hybrid search...");
+                    vectorResults = performSemanticSearch(request);
+                    if (vectorResults.size() < request.getLimit() / 2) {
+                        fileResults = performTextSearch(request);
+                        usedFallback = true;
+                    }
+                }
+            }
+
+            // Generate AI analysis if we have any results
+            if (!vectorResults.isEmpty() || !fileResults.isEmpty()) {
+                aiAnalysis = generateAdvancedAIAnalysis(request, vectorResults, fileResults);
+            }
+
+        } catch (Exception e) {
+            System.err.println("❌ Error in advanced search: " + e.getMessage());
+            // Fallback to text search
+            fileResults = performTextSearch(request);
+            usedFallback = true;
+            aiAnalysis = "Search completed using text-based analysis due to technical limitations.";
+        }
+
+        return new HybridSearchResult(vectorResults, fileResults, aiAnalysis, usedFallback);
+    }
+    
+    private List<SearchResult> performSemanticSearch(SearchRequest request) {
+        try {
+            // Use threshold if specified
+            List<Document> documents;
+            if (request.getThreshold() != null) {
+                documents = vectorStore.similaritySearch(request.getQuery());
+                // Filter by threshold - this is a simplified approach
+                // In a real implementation, you'd have more sophisticated threshold filtering
+            } else {
+                documents = vectorStore.similaritySearch(request.getQuery());
+            }
+            
+            return documents.stream()
+                    .limit(request.getLimit())
+                    .map(doc -> convertToSearchResultWithScore(doc, request.getQuery()))
+                    .collect(Collectors.toList());
+                    
+        } catch (Exception e) {
+            System.err.println("❌ Semantic search failed: " + e.getMessage());
+            return List.of();
+        }
+    }
+    
+    private List<FileSearchService.SearchResult> performTextSearch(SearchRequest request) {
+        try {
+            return fileSearchService.searchInFiles(request.getQuery())
+                    .stream()
+                    .limit(request.getLimit())
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            System.err.println("❌ Text search failed: " + e.getMessage());
+            return List.of();
+        }
+    }
+      private SearchResult convertToSearchResultWithScore(Document document, String query) {
+        String fileName = document.getMetadata().getOrDefault("fileName", "Unknown").toString();
+        String filePath = document.getMetadata().getOrDefault("filePath", "Unknown").toString();
+        String content = document.getText(); // Use getText() instead of getContent()
+        
+        // Calculate a simple relevance score based on query match
+        double score = calculateRelevanceScore(content, query);
+        
+        return new SearchResult(fileName, filePath, content, score, "semantic");
+    }
+    
+    private double calculateRelevanceScore(String content, String query) {
+        // Simple relevance scoring - count query terms in content
+        String[] queryTerms = query.toLowerCase().split("\\s+");
+        String contentLower = content.toLowerCase();
+        
+        long matches = Arrays.stream(queryTerms)
+                .mapToLong(term -> contentLower.split(term, -1).length - 1)
+                .sum();
+                
+        // Normalize by content length
+        return Math.min(1.0, matches / Math.max(1.0, contentLower.length() / 100.0));
+    }
+    
+    private String generateAdvancedAIAnalysis(SearchRequest request, List<SearchResult> vectorResults, List<FileSearchService.SearchResult> fileResults) {
+        try {
+            StringBuilder prompt = new StringBuilder();
+            prompt.append("Analyze the following search results for the query: '").append(request.getQuery()).append("'\n");
+            prompt.append("Search type: ").append(request.getSearchType()).append("\n\n");
+            
+            if (!vectorResults.isEmpty()) {
+                prompt.append("Semantic matches found:\n");
+                vectorResults.stream().limit(3).forEach(result -> 
+                    prompt.append("- ").append(result.getFileName()).append(": ").append(result.getContent().substring(0, Math.min(100, result.getContent().length()))).append("...\n"));
+            }
+            
+            if (!fileResults.isEmpty()) {
+                prompt.append("\nText matches found:\n");
+                fileResults.stream().limit(3).forEach(result -> 
+                    prompt.append("- ").append(result.getFileName()).append(": ").append(result.getContent().substring(0, Math.min(100, result.getContent().length()))).append("...\n"));
+            }
+            
+            prompt.append("\nProvide a brief analysis of these results and suggestions for the developer.");
+            
+            return chatModel.call(prompt.toString());
+        } catch (Exception e) {
+            return "Advanced analysis temporarily unavailable. Results show relevant code matches for your query.";
+        }
+    }
+    
+    /**
+     * Restart indexing process
+     */
+    public void restartIndexing() {
+        try {
+            indexingService.restartIndexing();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to restart indexing", e);
+        }
+    }
+    
+    /**
+     * Clear cache and reindex all files
+     */
+    public void clearCacheAndReindex() {
+        try {
+            indexingService.clearCacheAndReindex();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to clear cache and reindex", e);
+        }
+    }
+    
+    /**
+     * Get current indexing directory
+     */
+    public String getCurrentIndexingDirectory() {
+        try {
+            return indexingService.getCurrentIndexingDirectory();
+        } catch (Exception e) {
+            return "Unknown";
+        }
+    }    /**
      * Get indexing status for display
      */
     public IndexingStatus getIndexingStatus() {
-        return new IndexingStatus(
-                indexingService.isIndexingComplete(),
-                indexingService.isIndexingInProgress(),
-                indexingService.getIndexedFileCount(),
-                indexingService.getTotalFileCount(),
-                indexingService.getIndexingProgress()
-        );
-    }    /**
+        try {
+            // Get the detailed status from the indexing service
+            sg.edu.nus.iss.codebase.indexer.model.IndexingStatus detailedStatus = indexingService.getIndexingStatus();
+            
+            // Convert to the simple IndexingStatus for this service
+            return new IndexingStatus(
+                detailedStatus.isIndexingComplete(),
+                detailedStatus.isIndexingInProgress(),
+                detailedStatus.getIndexedFiles(),
+                detailedStatus.getTotalFiles(),
+                detailedStatus.getProgress()
+            );
+        } catch (Exception e) {
+            System.err.println("Error retrieving indexing status: " + e.getMessage());
+            e.printStackTrace();
+            // Return a safe default status
+            return new IndexingStatus(false, false, 0, 0, 0.0);
+        }
+    }/**
      * Set the directory to index
      */
     public void setIndexingDirectory(String directory) {
         indexingService.setIndexingDirectory(directory);
         fileSearchService.setSearchDirectory(directory);
-    }
-
-    /**
+    }    /**
      * Get the underlying IndexingService for detailed metrics
      */
-    public IndexingService getIndexingService() {
+    public FileIndexingService getIndexingService() {
         return indexingService;
-    }    /**
+    }/**
      * Search result class
      */
     public static class SearchResult {
@@ -175,6 +348,7 @@ public class HybridSearchService {
         public String getFilePath() { return filePath; }
         public String getContent() { return content; }
         public double getRelevanceScore() { return relevanceScore; }
+        public double getScore() { return relevanceScore; } // Add getScore() method for compatibility
         public String getSearchType() { return searchType; }
     }
 
