@@ -2,15 +2,7 @@
 
 An AI-powered terminal application for intelligent code search and indexing using Spring AI and vector databases.
 
-#4. **Configure the Application:**
-   ```bash
-   # Copy environment template
-   cp .env.example .env
-   
-   # Edit .env file with your cluster details
-   QDRANT_HOST=your-cluster-id.qdrant.tech
-   QDRANT_API_KEY=your-api-key-here
-   ```s
+## Features
 
 - 🔍 **Natural Language Search**: Search code using plain English queries
 - 🧠 **Semantic Search**: Find conceptually similar code using AI embeddings
@@ -237,6 +229,24 @@ chmod +x setup-models.sh
 
 ## Usage
 
+### Getting Started
+
+1. **Start the Application:**
+   ```bash
+   mvn spring-boot:run
+   ```
+
+2. **Wait for Initialization:**
+   - The application will initialize Qdrant collection
+   - Background indexing starts automatically
+   - CLI menu appears immediately (indexing runs in background)
+
+3. **Begin Searching:**
+   - Search is available even while indexing is in progress
+   - Priority files (Controllers, Services) are indexed first for immediate results
+
+### Interactive CLI Menu
+
 When you run the application, you'll see an interactive menu:
 
 ```
@@ -257,34 +267,29 @@ When you run the application, you'll see an interactive menu:
 └───────────────────────────────────────────────────┘
 ```
 
-### Menu Options
+### Detailed Menu Options
 
-**1. 🔍 Natural Language Search:**
-- Search using conversational queries like "Find authentication logic"
-- AI processes your intent and searches relevant code
+#### **1. 🔍 Natural Language Search**
+Use conversational queries to find code with AI assistance:
 
-**2. 📊 Indexing Status:**
-- View detailed real-time indexing progress
-- See file type breakdown, processing speed, thread usage
-- Monitor skipped file extensions and error counts
+**Example Queries:**
+```
+🔍 Search Query: Find authentication logic
+🔍 Search Query: Show me REST API endpoints for user management  
+🔍 Search Query: Classes that implement caching
+🔍 Search Query: Database connection configuration
+🔍 Search Query: Error handling middleware
+🔍 Search Query: JWT token validation
+```
 
-**3. 🧠 Semantic Code Search:**
-- Find conceptually similar code patterns
-- Adjustable similarity threshold for precision control
+**How it works:**
+- AI processes your natural language intent
+- Converts to optimized search terms
+- Returns ranked results with relevance scores
+- Shows code snippets with context
 
-**4. 📝 Text Search:**
-- Traditional keyword-based search across all indexed files
-- Fast and precise for known terms and identifiers
-
-**5. ⚙️ Advanced Search:**
-- Filter results by file types, languages, or specific criteria
-- Combine multiple search parameters
-
-**6. 📚 Index Codebase:**
-- Start or restart the indexing process
-- Set custom directory paths for targeted indexing
-
-### Sample Indexing Status Output
+#### **2. 📊 Indexing Status**
+Monitor real-time indexing progress and system performance:
 
 ```
 ╔═════════════════ INDEXING STATUS ═════════════════╗
@@ -305,25 +310,231 @@ When you run the application, you'll see an interactive menu:
 ╚═══════════════════════════════════════════════════╝
 ```
 
-### Search Examples
+**Status Information:**
+- **Progress**: Percentage of files processed
+- **Performance**: Files per second processing speed
+- **Threading**: Virtual thread usage for optimal performance
+- **File Breakdown**: Count by file type/extension
+- **Issues**: Failed and skipped file tracking
 
-**Natural Language Search:**
-- "Find functions that handle user authentication"
-- "Show me REST API endpoints for user management"
-- "Find classes that implement caching logic"
+#### **3. 🧠 Semantic Code Search**
+Find conceptually similar code using vector embeddings:
 
-**Semantic Search:**
-- Search for code patterns similar to your query
+**Example Usage:**
+```
+🧠 Enter search query: database repository pattern
+🎯 Similarity threshold (0.0-1.0) [0.7]: 0.8
+🔍 Max results [10]: 5
+
+📊 Found 5 results (similarity > 0.8):
+
+1. UserRepository.java (0.92) - Line 23
+   @Repository
+   public class UserRepository extends JpaRepository<User, Long> {
+       Optional<User> findByUsername(String username);
+   }
+
+2. ProductService.java (0.89) - Line 45
+   private final ProductRepository productRepository;
+   
+3. OrderRepository.java (0.85) - Line 12
+   public interface OrderRepository extends CrudRepository<Order, UUID> {
+```
+
+**Features:**
 - Adjustable similarity threshold (0.0 to 1.0)
+- Vector-based semantic matching
+- Ranked results by relevance score
+- Context-aware code snippets
 
-**Text Search:**
-- Traditional keyword search in code files
-- Fast and precise for known terms
+#### **4. 📝 Text Search**
+Fast keyword-based search across all indexed files:
 
-**Advanced Search:**
-- Filter by file types (java, js, py, etc.)
-- Filter by programming languages
-- Repository-specific search
+**Example Usage:**
+```
+📝 Enter search term: @RestController
+🔍 Case sensitive? [y/N]: n
+📊 Max results [20]: 10
+
+📊 Found 8 matches in 6 files:
+
+1. UserController.java - Line 15
+   @RestController
+   @RequestMapping("/api/users")
+   public class UserController {
+
+2. AuthController.java - Line 12
+   @RestController
+   @RequestMapping("/api/auth") 
+   public class AuthController {
+```
+
+**Search Options:**
+- Case-sensitive or insensitive matching
+- Regular expression support
+- File path filtering
+- Configurable result limits
+
+#### **5. ⚙️ Advanced Search**
+Combine multiple search criteria for precise results:
+
+**Filter Options:**
+```
+⚙️ Advanced Search Configuration:
+📁 File extensions: .java,.kt,.scala
+🏷️  File name pattern: *Service*
+📂 Directory filter: src/main/java
+🔍 Content contains: @Transactional
+📏 File size: 1KB - 100KB
+📅 Modified after: 2024-01-01
+```
+
+**Example Results:**
+```
+📊 Advanced Search Results (12 matches):
+
+Filters Applied:
+✅ Extensions: .java, .kt
+✅ Pattern: *Service*  
+✅ Content: @Transactional
+✅ Directory: src/main/java
+
+1. UserService.java (src/main/java/service/)
+   @Transactional
+   public void updateUser(User user) { ... }
+
+2. OrderService.kt (src/main/java/service/)
+   @Transactional
+   fun processOrder(order: Order) { ... }
+```
+
+#### **6. 📚 Index Codebase**
+Start or restart the indexing process:
+
+**Options:**
+```
+📚 Codebase Indexing Options:
+
+1. 🔄 Restart indexing (current directory)
+2. 📁 Change indexing directory
+3. 🗑️  Clear cache and reindex all files
+4. ⏸️  Pause/Resume indexing
+5. 📊 View indexing statistics
+
+Current directory: /path/to/project/src
+Indexed files: 1,247 | Cache entries: 1,189
+```
+
+**Directory Selection:**
+```
+📁 Select indexing directory:
+   Current: /project/src
+   
+1. 📂 /project/src (current)
+2. 📂 /project/src/main/java
+3. 📂 /project/codebase
+4. 📝 Enter custom path
+5. 🔙 Back to main menu
+
+Enter choice [1-5]:
+```
+
+#### **7. ❓ Help**
+Comprehensive help and documentation:
+
+```
+╔═══════════════════ HELP & TIPS ═══════════════════╗
+║                                                   ║
+║ 🔍 SEARCH TIPS:                                   ║
+║   • Use specific terms: "JWT authentication"     ║
+║   • Try different phrasings if no results        ║
+║   • Combine keywords: "user repository database" ║
+║                                                   ║
+║ 🎯 SIMILARITY THRESHOLDS:                         ║
+║   • 0.9-1.0: Very similar (exact matches)        ║
+║   • 0.7-0.9: Similar (related concepts)          ║
+║   • 0.5-0.7: Somewhat related                    ║
+║   • 0.0-0.5: Loose associations                  ║
+║                                                   ║
+║ 📁 SUPPORTED FILE TYPES:                          ║
+║   • Code: .java, .kt, .scala, .py, .js, .ts     ║
+║   • Config: .xml, .yml, .properties, .json      ║
+║   • Web: .html, .css, .jsp, .php                ║
+║   • Docs: .md, .txt, .adoc                      ║
+║   • Scripts: .sh, .cmd, .sql                    ║
+║                                                   ║
+║ ⚡ PERFORMANCE:                                    ║
+║   • Search available during indexing             ║
+║   • Priority files indexed first                 ║
+║   • Background processing uses virtual threads   ║
+║   • Cache prevents re-indexing unchanged files   ║
+║                                                   ║
+╚═══════════════════════════════════════════════════╝
+```
+
+### Search Examples & Best Practices
+
+#### **Natural Language Search Examples**
+
+| Query Type | Example | What it finds |
+|------------|---------|---------------|
+| **Functionality** | "user authentication" | Login methods, auth filters, JWT handling |
+| **Architecture** | "repository pattern" | Data access objects, JPA repositories |
+| **Error Handling** | "exception handling" | Try-catch blocks, error controllers |
+| **Configuration** | "database configuration" | DataSource beans, connection properties |
+| **API Endpoints** | "REST endpoints for users" | UserController methods, API routes |
+| **Security** | "authorization logic" | Security configs, role-based access |
+
+#### **Semantic Search Best Practices**
+
+- **High Similarity (0.8-1.0)**: Find exact patterns and implementations
+- **Medium Similarity (0.6-0.8)**: Find related concepts and similar logic
+- **Low Similarity (0.4-0.6)**: Explore loosely related code
+- **Use specific technical terms**: "repository", "controller", "service"
+- **Combine concepts**: "user authentication JWT token"
+
+#### **Text Search Tips**
+
+- **Class names**: `UserService`, `@RestController`
+- **Method names**: `findByUsername`, `authenticate`
+- **Annotations**: `@Transactional`, `@Autowired`
+- **Patterns**: Use wildcards like `find*` or `*Controller`
+- **Regular expressions**: Enable regex for complex patterns
+
+### Workflow Examples
+
+#### **Example 1: Finding Authentication Code**
+```
+1. Start with Natural Language: "user authentication"
+2. Review results, note relevant classes
+3. Use Semantic Search: "JWT token validation" (similarity: 0.7)
+4. Drill down with Text Search: "@PreAuthorize"
+5. Use Advanced Search: Files containing "auth" in src/main/java
+```
+
+#### **Example 2: Understanding Data Access Layer**
+```
+1. Natural Language: "database repository pattern"
+2. Semantic Search: "JPA repository" (similarity: 0.8)
+3. Text Search: "extends JpaRepository"
+4. Advanced Search: Filter by *.java files containing "@Repository"
+```
+
+#### **Example 3: API Endpoint Discovery**
+```
+1. Natural Language: "REST API endpoints"
+2. Text Search: "@RestController"
+3. Semantic Search: "HTTP GET POST endpoints" (similarity: 0.7)
+4. Advanced Search: Files matching "*Controller.java"
+```
+
+### Performance & Monitoring
+
+- **Real-time Status**: Check option 2 for live indexing progress
+- **Search During Indexing**: Search works immediately, even while indexing
+- **Cache Management**: System automatically manages file change detection
+- **Background Processing**: Indexing doesn't block the interactive menu
+- **Memory Efficient**: Virtual threads optimize resource usage
 
 ## Development
 
