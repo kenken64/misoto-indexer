@@ -237,16 +237,18 @@ chmod +x setup-models.sh
    ╔══════════════════════════════════════════════════════════════╗
    ║                    MISOTO CODEBASE INDEXER                   ║
    ║                   Intelligent Code Search                    ║
-   ╚══════════════════════════════════════════════════════════════╝   ┌─────────────────── SEARCH MENU ───────────────────┐
-   │ 1. [>] Search with Natural Language Prompt         │
-   │ 2. [i] Indexing Status                             │
-   │ 3. [S] Semantic Code Search                        │
-   │ 4. [T] Text Search                                 │
-   │ 5. [A] Advanced Search                             │
-   │ 6. [I] Index Codebase                              │
-   │ 7. [?] Help                                        │
-   │ 0. [X] Exit                                        │
-   └────────────────────────────────────────────────────┘
+   ╚══════════════════════════════════════════════════════════════╝
+   
+   ┌─────────────────── SEARCH MENU ───────────────────┐
+   │ 1. [>] Search with Natural Language Prompt        │
+   │ 2. [i] Indexing Status                            │
+   │ 3. [S] Semantic Code Search                       │
+   │ 4. [T] Text Search                                │
+   │ 5. [A] Advanced Search                            │
+   │ 6. [I] Index Codebase                             │
+   │ 7. [?] Help                                       │
+   │ 0. [X] Exit                                       │
+   └───────────────────────────────────────────────────┘
    ```
 
 ## Usage
