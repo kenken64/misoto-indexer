@@ -1074,21 +1074,21 @@ graph TB
             UC5[Browse Search Results]
             UC6[Export Search Results]
         end
-        
-        subgraph "Indexing Use Cases 📚"
+          subgraph "Indexing Use Cases 📚"
             UC7[Index Codebase Directory]
             UC8[Monitor Indexing Progress]
             UC9[Configure Indexing Settings]
             UC10[Manage File Cache]
             UC11[Handle Indexing Errors]
-            UC12[Validate File Types]        end
-        
-        subgraph "Configuration Use Cases ⚙️"
+            UC12[Validate File Types]
+        end
+          subgraph "Configuration Use Cases ⚙️"
             UC13[Setup AI Models - Ollama]
             UC14[Configure Vector Database - Qdrant]
             UC15[Manage Environment Variables]
             UC16[Customize File Priorities]
-            UC17[Set Performance Parameters]        end
+            UC17[Set Performance Parameters]
+        end
         
         subgraph "Monitoring Use Cases 📊"
             UC18[View System Status]
