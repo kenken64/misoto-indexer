@@ -133,7 +133,7 @@ The application provides comprehensive real-time metrics:
 
 ## Prerequisites
 
-- Java 17+
+- Java 21+
 - Maven 3.8+
 - Ollama (for local AI models)
 - Qdrant Cloud cluster (for vector search)
