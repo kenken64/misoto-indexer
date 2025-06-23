@@ -543,142 +543,710 @@ Comprehensive help and documentation:
 src/main/java/sg/edu/nus/iss/codebase/indexer/
 ├── IndexerApplication.java          # Main Spring Boot application
 ├── cli/
-│   └── SearchCLI.java              # Interactive command-line interface
+│   ├── SearchCLI.java              # Interactive command-line interface
+│   └── command/                    # Command Pattern implementation
+│       ├── Command.java            # Command interface
+│       └── IndexingStatusCommand.java # Status display command
 ├── config/
 │   ├── EnvironmentConfig.java      # Environment variable configuration
+│   ├── IndexingConfiguration.java  # Centralized indexing configuration
 │   ├── QdrantCollectionInitializer.java # Vector database setup
 │   └── VirtualThreadConfig.java    # Async processing configuration
 ├── controller/
 │   └── SearchController.java       # REST API endpoints (optional)
 ├── dto/
 │   └── SearchRequest.java          # Data transfer objects
-└── service/
-    ├── FileSearchService.java      # File-based search implementation
-    ├── HybridSearchService.java    # Main search orchestration
-    └── IndexingService.java        # Core indexing logic and vector processing
+├── model/
+│   └── IndexingStatus.java         # Status and metrics model
+├── service/
+│   ├── FileSearchService.java      # File-based search implementation
+│   ├── HybridSearchService.java    # Main search orchestration
+│   ├── impl/                       # Service implementations
+│   │   ├── DocumentFactoryManager.java # Factory manager
+│   │   ├── FileCacheRepositoryImpl.java # Cache repository implementation
+│   │   ├── FileIndexingServiceImpl.java # Core indexing service
+│   │   ├── TextDocumentFactory.java # Text document factory
+│   │   └── search/                 # Search strategy implementations
+│   │       └── SemanticSearchStrategy.java # Semantic search strategy
+│   └── interfaces/                 # Service interfaces
+│       ├── DocumentFactory.java    # Factory pattern interface
+│       ├── FileCacheRepository.java # Repository pattern interface
+│       ├── FileIndexingService.java # Service interface
+│       ├── IndexingStatusObserver.java # Observer pattern interface
+│       └── SearchStrategy.java     # Strategy pattern interface
 ```
+
+### Architecture & Design Patterns
+
+The codebase has been refactored to implement several design patterns for better maintainability and extensibility:
+
+#### **1. Configuration Pattern**
+- **IndexingConfiguration.java**: Centralizes all configuration settings
+- Externalized file extensions, priorities, and processing parameters
+- Environment-specific configuration through Spring Boot properties
+
+#### **2. Factory Pattern**
+- **DocumentFactory**: Interface for creating documents from different file types
+- **TextDocumentFactory**: Concrete factory for text-based files
+- **DocumentFactoryManager**: Manages multiple factories and selects appropriate one
+
+#### **3. Repository Pattern**
+- **FileCacheRepository**: Interface for file cache operations
+- **FileCacheRepositoryImpl**: Persistent cache implementation with modification tracking
+- Abstracts cache storage details from business logic
+
+#### **4. Strategy Pattern**
+- **SearchStrategy**: Interface for different search implementations
+- **SemanticSearchStrategy**: Vector-based semantic search
+- **TextSearchStrategy**: Keyword-based text search (extensible)
+- **NaturalLanguageSearchStrategy**: AI-powered search (extensible)
+
+#### **5. Observer Pattern**
+- **IndexingStatusObserver**: Interface for status update notifications
+- Real-time status updates to CLI and other components
+- Decoupled status reporting from indexing logic
+
+#### **6. Command Pattern**
+- **Command**: Interface for CLI actions
+- **IndexingStatusCommand**: Encapsulates status display logic
+- Extensible menu system with pluggable commands
+
+#### **7. Builder Pattern**
+- **IndexingStatus.Builder**: Fluent API for creating status objects
+- **SearchRequest**: DTO with builder support for complex queries
+
+#### **8. Service Layer Pattern**
+- **FileIndexingService**: Interface for indexing operations
+- **FileIndexingServiceImpl**: Core implementation with dependency injection
+- Clear separation of concerns between presentation, business, and data layers
 
 ### Key Components
 
-#### **IndexingService.java**
-- **Core indexing engine** with hybrid pipeline
-- **Vector embedding** using nomic-embed-text (768D)
-- **Persistent caching** with modification time tracking
-- **Priority-based processing** for critical files first
+#### **FileIndexingServiceImpl.java**
+- **Modular indexing engine** with separated concerns
+- **Observer pattern** for real-time status updates
+- **Factory pattern** for document creation
+- **Repository pattern** for cache management
+- **Configuration-driven** file processing
 - **Virtual thread pool** for concurrent I/O operations
-- **Comprehensive metrics** tracking and reporting
 
 #### **HybridSearchService.java**
-- **Multi-modal search** (semantic, text, natural language)
+- **Strategy pattern** for different search types
+- **Multi-modal search** orchestration
 - **Result ranking** and relevance scoring
-- **Search orchestration** across different backends
 - **Performance optimization** with caching strategies
 
 #### **SearchCLI.java**
+- **Command pattern** for menu actions
 - **Interactive terminal interface** with real-time updates
-- **Status monitoring** with detailed progress visualization
-- **User experience** optimized for developer workflows
+- **Observer implementation** for status monitoring
 - **Background processing** with responsive menu system
+
+#### **Configuration & Patterns**
+- **IndexingConfiguration**: Centralized, externalized settings
+- **FileCacheRepository**: Persistent cache with Repository pattern
+- **DocumentFactory**: Extensible factory for different file types
+- **SearchStrategy**: Pluggable search implementations
 
 ### Architecture Highlights
 
+#### **Modular Design with Design Patterns**
+```java
+// Configuration Pattern - Externalized settings
+@ConfigurationProperties(prefix = "indexer")
+public class IndexingConfiguration {
+    private Set~String~ supportedExtensions;
+    private Map~String,Integer~ filePriorities;
+    // ... other configuration
+}
+
+// Factory Pattern - Document creation
+public interface DocumentFactory {
+    List<Document> createDocuments(File file);
+    boolean supports(File file);
+}
+
+// Repository Pattern - Cache management
+public interface FileCacheRepository {
+    boolean needsReindexing(File file);
+    void saveIndexedFile(String filePath);
+}
+
+// Strategy Pattern - Search implementations
+public interface SearchStrategy {
+    List<SearchResult> search(SearchRequest request);
+    boolean supports(SearchRequest.SearchType searchType);
+}
+
+// Observer Pattern - Status updates
+public interface IndexingStatusObserver {
+    void onStatusUpdate(IndexingStatus status);
+    void onIndexingComplete(IndexingStatus finalStatus);
+}
+```
+
 #### **Asynchronous Processing**
 ```java
-@Async("indexingExecutor")
-public CompletableFuture<Void> indexPriorityFilesAsync() {
-    // Priority files processed first for immediate search availability
-}
-
-@Async("virtualThreadExecutor") 
+@Async("virtualThreadExecutor")
 public CompletableFuture<Void> indexRemainingFilesAsync() {
     // Background processing using virtual threads
+    // with observer notifications for status updates
 }
 ```
 
-#### **Intelligent Caching**
+#### **Intelligent Caching with Repository Pattern**
 ```java
-// Persistent cache tracks file modification times
-private final Map<String, Long> fileModificationTimes = new ConcurrentHashMap<>();
-
-private boolean needsReindexing(File file) {
-    // Only reindex if file is new or modified
-    return !indexedFilePaths.contains(filePath) || 
-           currentModTime != cachedModTime;
+@Repository
+public class FileCacheRepositoryImpl implements FileCacheRepository {
+    public boolean needsReindexing(File file) {
+        // Only reindex if file is new or modified
+        return !indexedFilePaths.contains(filePath) || 
+               currentModTime != cachedModTime;
+    }
 }
 ```
 
-#### **Vector Pipeline**
+#### **Vector Pipeline with Factory Pattern**
 ```java
-// Raw Text → Embedding → Vector → Storage
-List<Document> documents = createDocumentsFromFile(file);
+// DocumentFactoryManager selects appropriate factory
+List<Document> documents = documentFactoryManager.createDocuments(file);
 vectorStore.add(documents); // nomic-embed-text → 768D vector → Qdrant
 ```
 
-## Configuration
+## 🎨 Design Patterns & UML Diagrams
 
-### Vector Database Setup (Qdrant Cloud)
+## 📐 UML Design Pattern Diagrams
 
-1. **Create a Qdrant Cloud Account:**
-   - Visit [Qdrant Cloud](https://cloud.qdrant.io/)
-   - Sign up for a free account
-   - Create a new cluster
+### **1. Factory Pattern - Document Creation**
 
-2. **Get Your Cluster Details:**
-   ```bash
-   # Your cluster URL will look like:
-   # https://your-cluster-id.qdrant.tech:6333
-   ```
-
-3. **Configure the Application:**
-   ```properties
-   # In application.properties
-   spring.ai.vectorstore.qdrant.host=your-cluster-id.qdrant.tech
-   spring.ai.vectorstore.qdrant.port=6333
-   spring.ai.vectorstore.qdrant.use-tls=true
-   spring.ai.vectorstore.qdrant.api-key=your-api-key-here
-   spring.ai.vectorstore.qdrant.collection-name=codebase-index
-   ```
-
-4. **Create Collection (Optional):**
-   The application will automatically create the collection if it doesn't exist.
-
-### AI Model Configuration
-
-The application uses Ollama for local AI processing with CodeLlama:
-
-```properties
-# Ollama Configuration
-spring.ai.ollama.base-url=http://localhost:11434
-spring.ai.ollama.chat.options.model=codellama:7b
-spring.ai.ollama.embedding.options.model=codellama:7b
+```mermaid
+classDiagram
+    class DocumentFactory {
+        <<interface>>
+        +createDocuments(File file) List~Document~
+        +supports(File file) boolean
+    }
+    
+    class TextDocumentFactory {
+        -chunkSize: int
+        -chunkOverlap: int
+        +createDocuments(File file) List~Document~
+        +supports(File file) boolean
+        -extractTextContent(File file) String
+        -createChunkedDocuments(String content, File file) List~Document~
+    }
+    
+    class DocumentFactoryManager {
+        -factories: List~DocumentFactory~
+        +createDocuments(File file) List~Document~
+        +registerFactory(DocumentFactory factory) void
+        -findSupportingFactory(File file) DocumentFactory
+    }
+    
+    class Document {
+        +content: String
+        +metadata: Map~String, Object~
+    }
+    
+    DocumentFactory <|.. TextDocumentFactory
+    DocumentFactoryManager o--> DocumentFactory : manages
+    DocumentFactory ..> Document : creates
+    TextDocumentFactory ..> Document : creates
 ```
 
-**Available Models:**
-- `codellama:7b` - 7B parameter CodeLlama model (recommended)
-- `codellama:13b` - 13B parameter model (better quality, slower)
-- `codellama:34b` - 34B parameter model (best quality, slowest)
+### **2. Repository Pattern - Cache Management**
 
-**Install different models:**
-```bash
-ollama pull codellama:13b
-ollama pull codellama:34b
+```mermaid
+classDiagram
+    class FileCacheRepository {
+        <<interface>>
+        +needsReindexing(File file) boolean
+        +saveIndexedFile(String filePath) void
+        +loadCache() void
+        +saveCache() void
+        +getCacheStats() Map~String, Object~
+    }
+    
+    class FileCacheRepositoryImpl {
+        -indexedFilePaths: Set~String~
+        -fileModificationTimes: Map~String, Long~
+        -cacheFilePath: String
+        +needsReindexing(File file) boolean
+        +saveIndexedFile(String filePath) void
+        +loadCache() void
+        +saveCache() void
+        +getCacheStats() Map~String, Object~
+        -getCurrentModificationTime(File file) long
+        -getCachedModificationTime(String filePath) Long
+    }
+    
+    class FileIndexingServiceImpl {
+        -fileCacheRepository: FileCacheRepository
+        +indexDirectory(String directoryPath) void
+        -shouldIndexFile(File file) boolean
+    }
+    
+    FileCacheRepository <|.. FileCacheRepositoryImpl
+    FileIndexingServiceImpl --> FileCacheRepository : uses
 ```
 
-## Contributing
+### **3. Strategy Pattern - Search Implementations**
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
+```mermaid
+classDiagram
+    class SearchStrategy {
+        <<interface>>
+        +search(SearchRequest request) List~SearchResult~
+        +supports(SearchType searchType) boolean
+    }
+    
+    class SemanticSearchStrategy {
+        -vectorStore: VectorStore
+        -embeddingModel: EmbeddingModel
+        +search(SearchRequest request) List~SearchResult~
+        +supports(SearchType searchType) boolean
+        -createEmbeddingQuery(String query) List~Double~
+        -convertToSearchResults(List results) List~SearchResult~
+    }
+    
+    class TextSearchStrategy {
+        -fileSearchService: FileSearchService
+        +search(SearchRequest request) List~SearchResult~
+        +supports(SearchType searchType) boolean
+        -performTextSearch(String query) List~SearchResult~
+    }
+    
+    class NaturalLanguageSearchStrategy {
+        -chatModel: ChatModel
+        -semanticSearchStrategy: SemanticSearchStrategy
+        +search(SearchRequest request) List~SearchResult~
+        +supports(SearchType searchType) boolean
+        -processNaturalLanguageQuery(String query) String
+    }
+    
+    class HybridSearchService {
+        -searchStrategies: List~SearchStrategy~
+        +search(SearchRequest request) List~SearchResult~
+        -findStrategy(SearchType type) SearchStrategy
+        -rankAndMergeResults(List results) List~SearchResult~
+    }
+    
+    SearchStrategy <|.. SemanticSearchStrategy
+    SearchStrategy <|.. TextSearchStrategy
+    SearchStrategy <|.. NaturalLanguageSearchStrategy
+    HybridSearchService o--> SearchStrategy : manages
+```
 
-## License
+### **4. Observer Pattern - Status Updates**
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+```mermaid
+classDiagram
+    class IndexingStatusObserver {
+        <<interface>>
+        +onStatusUpdate(IndexingStatus status) void
+        +onIndexingComplete(IndexingStatus finalStatus) void
+        +onIndexingError(String error) void
+    }
+    
+    class FileIndexingServiceImpl {
+        -observers: List~IndexingStatusObserver~
+        -currentStatus: IndexingStatus
+        +addObserver(IndexingStatusObserver observer) void
+        +removeObserver(IndexingStatusObserver observer) void
+        +indexDirectory(String path) void
+        -notifyObservers(IndexingStatus status) void
+        -notifyCompletion(IndexingStatus status) void
+        -notifyError(String error) void
+    }
+    
+    class SearchCLI {
+        +onStatusUpdate(IndexingStatus status) void
+        +onIndexingComplete(IndexingStatus finalStatus) void
+        +onIndexingError(String error) void
+        -displayStatusUpdate(IndexingStatus status) void
+    }
+    
+    class StatusMetricsCollector {
+        -metricsHistory: List~IndexingStatus~
+        +onStatusUpdate(IndexingStatus status) void
+        +onIndexingComplete(IndexingStatus finalStatus) void
+        +onIndexingError(String error) void
+        +getMetricsReport() String
+    }
+    
+    IndexingStatusObserver <|.. SearchCLI
+    IndexingStatusObserver <|.. StatusMetricsCollector
+    FileIndexingServiceImpl o--> IndexingStatusObserver : notifies
+```
 
-## Support
+### **5. Command Pattern - CLI Actions**
 
-For issues and questions:
-- Create an issue on GitHub
-- Check the documentation
-- Review the help menu in the application (option 6)
+```mermaid
+classDiagram
+    class Command {
+        <<interface>>
+        +execute(String[] args) void
+        +getDescription() String
+        +getUsage() String
+    }
+    
+    class IndexingStatusCommand {
+        -fileIndexingService: FileIndexingService
+        +execute(String[] args) void
+        +getDescription() String
+        +getUsage() String
+        -displayDetailedStatus() void
+        -formatStatusDisplay(IndexingStatus status) String
+    }
+    
+    class SearchCommand {
+        -hybridSearchService: HybridSearchService
+        +execute(String[] args) void
+        +getDescription() String
+        +getUsage() String
+        -performSearch(SearchRequest request) void
+    }
+    
+    class IndexCommand {
+        -fileIndexingService: FileIndexingService
+        +execute(String[] args) void
+        +getDescription() String
+        +getUsage() String
+        -startIndexing(String directoryPath) void
+    }
+    
+    class SearchCLI {
+        -commands: Map~String, Command~
+        +registerCommand(String key, Command command) void
+        +executeCommand(String commandKey, String[] args) void
+        -displayMenu() void
+        -processUserInput() void
+    }
+    
+    Command <|.. IndexingStatusCommand
+    Command <|.. SearchCommand
+    Command <|.. IndexCommand
+    SearchCLI o--> Command : manages
+```
+
+### **6. Builder Pattern - Configuration Objects**
+
+```mermaid
+classDiagram
+    class IndexingStatus {
+        -totalFiles: int
+        -indexedFiles: int
+        -startTime: LocalDateTime
+        -estimatedCompletion: LocalDateTime
+        -filesPerSecond: double
+        -activeThreads: int
+        -peakThreads: int
+        -fileTypeStats: Map~String, Integer~
+        -failedFiles: int
+        -skippedFiles: int
+        +builder() IndexingStatusBuilder
+    }
+    
+    class IndexingStatusBuilder {
+        -totalFiles: int
+        -indexedFiles: int
+        -startTime: LocalDateTime
+        -estimatedCompletion: LocalDateTime
+        -filesPerSecond: double
+        -activeThreads: int
+        -peakThreads: int
+        -fileTypeStats: Map~String, Integer~
+        -failedFiles: int
+        -skippedFiles: int
+        +totalFiles(int totalFiles) IndexingStatusBuilder
+        +indexedFiles(int indexedFiles) IndexingStatusBuilder
+        +startTime(LocalDateTime startTime) IndexingStatusBuilder
+        +estimatedCompletion(LocalDateTime time) IndexingStatusBuilder
+        +filesPerSecond(double rate) IndexingStatusBuilder
+        +activeThreads(int threads) IndexingStatusBuilder
+        +peakThreads(int threads) IndexingStatusBuilder
+        +fileTypeStats(Map stats) IndexingStatusBuilder
+        +failedFiles(int failed) IndexingStatusBuilder
+        +skippedFiles(int skipped) IndexingStatusBuilder
+        +build() IndexingStatus
+    }
+    
+    class SearchRequest {
+        -query: String
+        -searchType: SearchType
+        -maxResults: int
+        -similarityThreshold: double
+        -fileExtensions: Set~String~
+        -dateRange: DateRange
+        -sortCriteria: SortCriteria
+        +builder() SearchRequestBuilder
+    }
+    
+    class SearchRequestBuilder {
+        -query: String
+        -searchType: SearchType
+        -maxResults: int
+        -similarityThreshold: double
+        -fileExtensions: Set~String~
+        -dateRange: DateRange
+        -sortCriteria: SortCriteria
+        +query(String query) SearchRequestBuilder
+        +searchType(SearchType type) SearchRequestBuilder
+        +maxResults(int max) SearchRequestBuilder
+        +similarityThreshold(double threshold) SearchRequestBuilder
+        +fileExtensions(Set extensions) SearchRequestBuilder
+        +dateRange(DateRange range) SearchRequestBuilder
+        +sortCriteria(SortCriteria criteria) SearchRequestBuilder
+        +build() SearchRequest
+    }
+    
+    IndexingStatus --> IndexingStatusBuilder : creates
+    SearchRequest --> SearchRequestBuilder : creates
+```
+
+### **7. Configuration Pattern - Centralized Settings**
+
+```mermaid
+classDiagram
+    class IndexingConfiguration {
+        <<@ConfigurationProperties>>
+        -supportedExtensions: Set~String~
+        -filePriorities: Map~String, Integer~
+        -chunkSize: int
+        -chunkOverlap: int
+        -maxConcurrentFiles: int
+        -cacheEnabled: boolean
+        -cacheFilePath: String
+        -indexingBatchSize: int
+        +getSupportedExtensions() Set~String~
+        +getFilePriorities() Map~String, Integer~
+        +getChunkSize() int
+        +getChunkOverlap() int
+        +getMaxConcurrentFiles() int
+        +isCacheEnabled() boolean
+        +getCacheFilePath() String
+        +getIndexingBatchSize() int
+        +getFilePriority(String extension) int
+        +isFileSupported(String extension) boolean
+    }
+    
+    class FileIndexingServiceImpl {
+        -indexingConfiguration: IndexingConfiguration
+        +indexDirectory(String path) void
+        -isFileSupported(File file) boolean
+        -getFilePriority(File file) int
+        -createDocumentChunks(File file) List~Document~
+    }
+    
+    class DocumentFactoryManager {
+        -indexingConfiguration: IndexingConfiguration
+        +createDocuments(File file) List~Document~
+        -shouldProcessFile(File file) boolean
+    }
+    
+    class HybridSearchService {
+        -indexingConfiguration: IndexingConfiguration
+        +search(SearchRequest request) List~SearchResult~
+        +getSupportedSearchTypes() List~SearchType~
+        -selectStrategy(SearchType type) SearchStrategy
+        -rankResults(List results) List~SearchResult~
+    }
+    
+    IndexingConfiguration --> FileIndexingServiceImpl : configures
+    IndexingConfiguration --> DocumentFactoryManager : configures
+    IndexingConfiguration --> HybridSearchService : configures
+```
+
+### **8. Service Layer Pattern - Business Logic Separation**
+
+```mermaid
+classDiagram
+    class FileIndexingService {
+        <<interface>>
+        +indexDirectory(String directoryPath) CompletableFuture~Void~
+        +getIndexingStatus() IndexingStatus
+        +pauseIndexing() void
+        +resumeIndexing() void
+        +cancelIndexing() void
+        +addObserver(IndexingStatusObserver observer) void
+        +removeObserver(IndexingStatusObserver observer) void
+    }
+    
+    class FileIndexingServiceImpl {
+        -vectorStore: VectorStore
+        -embeddingModel: EmbeddingModel
+        -documentFactoryManager: DocumentFactoryManager
+        -fileCacheRepository: FileCacheRepository
+        -indexingConfiguration: IndexingConfiguration
+        -observers: List~IndexingStatusObserver~
+        -virtualThreadExecutor: ExecutorService
+        -indexingStatus: IndexingStatus
+        +indexDirectory(String directoryPath) CompletableFuture~Void~
+        +getIndexingStatus() IndexingStatus
+        +pauseIndexing() void
+        +resumeIndexing() void
+        +cancelIndexing() void
+        +addObserver(IndexingStatusObserver observer) void
+        +removeObserver(IndexingStatusObserver observer) void
+        -indexPriorityFiles(List files) void
+        -indexRemainingFiles(List files) void
+        -processFile(File file) void
+        -updateStatus() void
+        -notifyObservers() void
+    }
+    
+    class HybridSearchService {
+        -searchStrategies: List~SearchStrategy~
+        -indexingConfiguration: IndexingConfiguration
+        +search(SearchRequest request) List~SearchResult~
+        +getSupportedSearchTypes() List~SearchType~
+        -selectStrategy(SearchType type) SearchStrategy
+        -rankResults(List results) List~SearchResult~
+    }
+    
+    class SearchCLI {
+        -fileIndexingService: FileIndexingService
+        -hybridSearchService: HybridSearchService
+        +startInteractiveMode() void
+        -handleUserInput() void
+        -displaySearchResults() void
+    }
+    
+    FileIndexingService <|.. FileIndexingServiceImpl
+    SearchCLI --> FileIndexingService : uses
+    SearchCLI --> HybridSearchService : uses
+    FileIndexingServiceImpl --> DocumentFactoryManager : uses
+    FileIndexingServiceImpl --> FileCacheRepository : uses
+    HybridSearchService --> SearchStrategy : uses
+```
+
+### **9. Overall System Architecture**
+
+```mermaid
+graph TB
+    subgraph "Presentation Layer"
+        CLI[SearchCLI]
+        CMD[Command Objects]
+    end
+    
+    subgraph "Service Layer"
+        IS[FileIndexingService]
+        HS[HybridSearchService]
+        FS[FileSearchService]
+    end
+    
+    subgraph "Strategy Layer"
+        SS[SemanticSearchStrategy]
+        TS[TextSearchStrategy]
+        NLS[NaturalLanguageSearchStrategy]
+    end
+    
+    subgraph "Factory Layer"
+        DFM[DocumentFactoryManager]
+        TDF[TextDocumentFactory]
+        PDF[PdfDocumentFactory]
+    end
+    
+    subgraph "Repository Layer"
+        FCR[FileCacheRepository]
+        VDB[(Vector Database)]
+        CACHE[(File Cache)]
+    end
+    
+    subgraph "Configuration Layer"
+        IC[IndexingConfiguration]
+        EC[EnvironmentConfig]
+    end
+    
+    subgraph "Observer Layer"
+        OBS[Status Observers]
+        METRICS[Metrics Collector]
+    end
+    
+    CLI --> CMD
+    CLI --> IS
+    CLI --> HS
+    CLI -.-> OBS
+    
+    IS --> DFM
+    IS --> FCR
+    IS -.-> OBS
+    
+    HS --> SS
+    HS --> TS
+    HS --> NLS
+    
+    DFM --> TDF
+    DFM --> PDF
+    
+    SS --> VDB
+    TS --> FS
+    FCR --> CACHE
+    
+    IC --> IS
+    IC --> HS
+    IC --> DFM
+    
+    OBS --> METRICS
+    
+    style CLI fill:#e1f5fe
+    style IS fill:#f3e5f5
+    style HS fill:#f3e5f5
+    style SS fill:#e8f5e8
+    style DFM fill:#fff3e0
+    style FCR fill:#fce4ec
+    style IC fill:#f1f8e9
+    style OBS fill:#e0f2f1
+```
+
+### **10. Pattern Interaction Flow**
+
+```mermaid
+sequenceDiagram
+    participant CLI as SearchCLI
+    participant CMD as IndexingStatusCommand
+    participant IS as FileIndexingService
+    participant DFM as DocumentFactoryManager
+    participant TDF as TextDocumentFactory
+    participant FCR as FileCacheRepository
+    participant OBS as StatusObserver
+    participant VS as VectorStore
+    
+    CLI->>CMD: execute("status")
+    CMD->>IS: getIndexingStatus()
+    
+    Note over CLI,VS: Indexing Process
+    CLI->>IS: indexDirectory("/project/src")
+    IS->>FCR: loadCache()
+    IS->>DFM: createDocuments(file)
+    DFM->>TDF: createDocuments(file)
+    TDF-->>DFM: List<Document>
+    DFM-->>IS: List<Document>
+    IS->>VS: add(documents)
+    IS->>FCR: saveIndexedFile(filePath)
+    IS->>OBS: onStatusUpdate(status)
+    OBS-->>CLI: displayStatusUpdate()
+    
+    Note over CLI,VS: Search Process  
+    CLI->>IS: search(request)
+    IS->>DFM: findStrategy(SEMANTIC)
+    DFM-->>IS: SemanticSearchStrategy
+    IS->>VS: similaritySearch(query)
+    VS-->>IS: List<SearchResult>
+    IS-->>CLI: List<SearchResult>
+```
+
+These UML diagrams provide a comprehensive view of all the design patterns implemented in the refactored codebase, showing:
+
+1. **Factory Pattern**: Document creation with extensible factories
+2. **Repository Pattern**: File cache management with persistent storage
+3. **Strategy Pattern**: Pluggable search implementations
+4. **Observer Pattern**: Real-time status updates and notifications
+5. **Command Pattern**: CLI command structure and execution
+6. **Builder Pattern**: Fluent object construction for complex types
+7. **Configuration Pattern**: Centralized, externalized settings
+8. **Service Layer Pattern**: Business logic separation and dependency injection
+9. **Overall Architecture**: System-wide component interactions
+10. **Pattern Interactions**: Sequence diagram showing how patterns work together
+
+Each pattern is designed to enhance maintainability, extensibility, and testability of the codebase while following SOLID principles and Spring Boot best practices.
