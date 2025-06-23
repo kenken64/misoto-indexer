@@ -1,0 +1,2 @@
+org.springframework.boot.env.EnvironmentPostProcessor=\
+sg.edu.nus.iss.codebase.indexer.config.EnvironmentConfig

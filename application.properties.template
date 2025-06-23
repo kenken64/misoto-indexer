@@ -1,0 +1,41 @@
+# Misoto Codebase Indexer Configuration Template
+# Copy this to src/main/resources/application.properties and update with your values
+
+spring.application.name=indexer
+
+# Disable web server for terminal application
+spring.main.web-application-type=none
+
+# Logging configuration
+logging.level.sg.edu.nus.iss.codebase.indexer=INFO
+logging.pattern.console=%d{HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n
+
+# Ollama Configuration (Local AI)
+spring.ai.ollama.base-url=http://localhost:11434
+spring.ai.ollama.chat.enabled=true
+spring.ai.ollama.chat.options.model=codellama:7b
+spring.ai.ollama.chat.options.temperature=0.7
+spring.ai.ollama.embedding.enabled=true
+spring.ai.ollama.embedding.options.model=codellama:7b
+
+# Qdrant Cloud Configuration
+# 1. Create account at https://cloud.qdrant.io/
+# 2. Create a new cluster
+# 3. Get your cluster URL and API key
+# 4. Update the values below
+
+spring.ai.vectorstore.qdrant.host=YOUR_CLUSTER_URL.qdrant.tech
+spring.ai.vectorstore.qdrant.port=6333
+spring.ai.vectorstore.qdrant.use-tls=true
+spring.ai.vectorstore.qdrant.api-key=YOUR_QDRANT_API_KEY
+spring.ai.vectorstore.qdrant.collection-name=codebase-index
+spring.ai.vectorstore.qdrant.enabled=true
+
+# Model selection for Spring AI
+spring.ai.model.chat=ollama
+spring.ai.model.embedding=ollama
+
+# Advanced Qdrant Configuration (Optional)
+# spring.ai.vectorstore.qdrant.timeout=30s
+# spring.ai.vectorstore.qdrant.metadata-text-field=text
+# spring.ai.vectorstore.qdrant.embedding-field-name=embedding
