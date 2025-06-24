@@ -35,3 +35,4 @@ build/
 ### Environment Variables ###
 .env
 codebase/*
+.indexed_files_cache.txt
