@@ -430,28 +430,28 @@ Comprehensive help and documentation:
 ╔═══════════════════ HELP & TIPS ═══════════════════╗
 ║                                                   ║
 ║ 🔍 SEARCH TIPS:                                   ║
-║   • Use specific terms: "JWT authentication"     ║
-║   • Try different phrasings if no results        ║
-║   • Combine keywords: "user repository database" ║
+║   • Use specific terms: "JWT authentication"      ║
+║   • Try different phrasings if no results         ║
+║   • Combine keywords: "user repository database"  ║
 ║                                                   ║
 ║ 🎯 SIMILARITY THRESHOLDS:                         ║
-║   • 0.9-1.0: Very similar (exact matches)        ║
-║   • 0.7-0.9: Similar (related concepts)          ║
-║   • 0.5-0.7: Somewhat related                    ║
-║   • 0.0-0.5: Loose associations                  ║
+║   • 0.9-1.0: Very similar (exact matches)         ║
+║   • 0.7-0.9: Similar (related concepts)           ║
+║   • 0.5-0.7: Somewhat related                     ║
+║   • 0.0-0.5: Loose associations                   ║
 ║                                                   ║
 ║ 📁 SUPPORTED FILE TYPES:                          ║
-║   • Code: .java, .kt, .scala, .py, .js, .ts     ║
-║   • Config: .xml, .yml, .properties, .json      ║
-║   • Web: .html, .css, .jsp, .php                ║
-║   • Docs: .md, .txt, .adoc                      ║
-║   • Scripts: .sh, .cmd, .sql                    ║
+║   • Code: .java, .kt, .scala, .py, .js, .ts       ║
+║   • Config: .xml, .yml, .properties, .json        ║
+║   • Web: .html, .css, .jsp, .php                  ║
+║   • Docs: .md, .txt, .adoc                        ║
+║   • Scripts: .sh, .cmd, .sql                      ║
 ║                                                   ║
-║ ⚡ PERFORMANCE:                                    ║
-║   • Search available during indexing             ║
-║   • Priority files indexed first                 ║
-║   • Background processing uses virtual threads   ║
-║   • Cache prevents re-indexing unchanged files   ║
+║ ⚡ PERFORMANCE:                                   ║
+║   • Search available during indexing              ║
+║   • Priority files indexed first                  ║
+║   • Background processing uses virtual threads    ║
+║   • Cache prevents re-indexing unchanged files    ║
 ║                                                   ║
 ╚═══════════════════════════════════════════════════╝
 ```
