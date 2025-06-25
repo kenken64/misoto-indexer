@@ -41,27 +41,31 @@ public class SearchCLI implements CommandLineRunner {
                 System.out.println();
             }
         }
-    }
-
-    @Override
+    }    @Override
     public void run(String... args) {
         // Check if directory argument is provided
         if (args.length > 0) {
             String directory = args[0];
             System.out.println("[DIR] Setting indexing directory: " + directory);
             hybridSearchService.setIndexingDirectory(directory);
-            System.out.println("[START] Indexing started in background...");
+            
+            // NOTE: setIndexingDirectory already starts indexing automatically through
+            // setIndexingDirectoryWithCollection, so we don't need to start it again
 
             // Add a small delay to let indexing messages complete, then clear screen
+            System.out.println("[WAIT] Waiting 3 seconds for indexing to initialize...");
             try {
                 Thread.sleep(3000); // Wait 3 seconds for indexing status messages
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
+            System.out.println("[CLEAR] Clearing screen and showing interface...");
             clearScreen();
         }
 
+        System.out.println("[DISPLAY] Showing welcome message...");
         displayWelcomeMessage();
+        System.out.println("[LOOP] Starting main loop...");
         mainLoop();
     }
 
@@ -328,9 +332,7 @@ public class SearchCLI implements CommandLineRunner {
         } else {
             System.out.println("🎯 Used vector-based semantic search");
         }
-        System.out.printf("📊 Total results: %d%n%n", result.getTotalResults());
-
-        // Display vector search results
+        System.out.printf("📊 Total results: %d%n%n", result.getTotalResults());        // Display vector search results
         if (!result.getVectorResults().isEmpty()) {
             System.out.println("🎯 VECTOR SEARCH RESULTS:");
             System.out.println("-".repeat(40));
@@ -338,20 +340,41 @@ public class SearchCLI implements CommandLineRunner {
                 HybridSearchService.SearchResult vResult = result.getVectorResults().get(i);
                 System.out.printf("%d. 📄 %s%n", i + 1, vResult.getFileName());
                 System.out.printf("   📁 %s%n", vResult.getFilePath());
-                System.out.printf("   📝 %s%n%n", truncateContent(vResult.getContent(), 200));
+                System.out.printf("   📦 Collection: %s%n", vResult.getCollectionName());
+                System.out.printf("   📅 Modified: %s%n", vResult.getLastModifiedDate());
+                System.out.printf("   🔍 Indexed: %s%n", vResult.getIndexedAt());
+                System.out.printf("   📏 Size: %s bytes%n", vResult.getFileSize());
+                
+                // Display line matches if available
+                if (!vResult.getLineMatches().isEmpty()) {
+                    System.out.println("   🎯 Line Matches:");
+                    for (FileSearchService.LineMatch lineMatch : vResult.getLineMatches()) {
+                        System.out.printf("      Line %d: %s%n", lineMatch.getLineNumber(), lineMatch.getLineContent());
+                    }
+                } else {
+                    System.out.printf("   📝 %s%n", truncateContent(vResult.getContent(), 200));
+                }
+                System.out.println();
             }
-        }
-
-        // Display file search results
+        }        // Display file search results
         if (!result.getFileResults().isEmpty()) {
             System.out.println("📂 FILE SEARCH RESULTS:");
             System.out.println("-".repeat(40));
             for (int i = 0; i < Math.min(5, result.getFileResults().size()); i++) {
                 FileSearchService.SearchResult fResult = result.getFileResults().get(i);
                 System.out.printf("%d. 📄 %s (Score: %.1f)%n",
-                        i + 1, fResult.getFileName(), fResult.getRelevanceScore());
-                System.out.printf("   📁 %s%n", fResult.getFilePath());
-                System.out.printf("   📝 %s%n%n", truncateContent(fResult.getContent(), 150));
+                        i + 1, fResult.getFileName(), fResult.getRelevanceScore());                System.out.printf("   📁 %s%n", fResult.getFilePath());
+                
+                // Display line matches if available
+                if (!fResult.getLineMatches().isEmpty()) {
+                    System.out.println("   🎯 Line Matches:");
+                    for (FileSearchService.LineMatch lineMatch : fResult.getLineMatches()) {
+                        System.out.printf("      Line %d: %s%n", lineMatch.getLineNumber(), lineMatch.getLineContent());
+                    }
+                } else {
+                    System.out.printf("   📝 %s%n", truncateContent(fResult.getContent(), 150));
+                }
+                System.out.println();
             }
         }
 
@@ -747,12 +770,21 @@ public class SearchCLI implements CommandLineRunner {
                 HybridSearchService.SearchResult searchResult = (HybridSearchService.SearchResult) allResults.get(i);
                 System.out.printf("%d. 📄 %s%n", i + 1, searchResult.getFileName());
                 System.out.printf("   📁 %s%n", searchResult.getFilePath());
-                System.out.printf("   📝 %s%n%n", truncateContent(searchResult.getContent(), 150));
-            } else if (allResults.get(i) instanceof FileSearchService.SearchResult) {
+                System.out.printf("   📝 %s%n%n", truncateContent(searchResult.getContent(), 150));            } else if (allResults.get(i) instanceof FileSearchService.SearchResult) {
                 FileSearchService.SearchResult fileResult = (FileSearchService.SearchResult) allResults.get(i);
                 System.out.printf("%d. 📄 %s%n", i + 1, fileResult.getFileName());
                 System.out.printf("   📁 %s%n", fileResult.getFilePath());
-                System.out.printf("   📝 %s%n%n", truncateContent(fileResult.getContent(), 150));
+                
+                // Display line matches if available
+                if (!fileResult.getLineMatches().isEmpty()) {
+                    System.out.println("   🎯 Line Matches:");
+                    for (FileSearchService.LineMatch lineMatch : fileResult.getLineMatches()) {
+                        System.out.printf("      Line %d: %s%n", lineMatch.getLineNumber(), lineMatch.getLineContent());
+                    }
+                } else {
+                    System.out.printf("   📝 %s%n", truncateContent(fileResult.getContent(), 150));
+                }
+                System.out.println();
             }
         }
 

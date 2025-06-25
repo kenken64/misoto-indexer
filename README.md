@@ -83,8 +83,8 @@ graph TD
 | **Documentation** | `.md`, `.txt`, `.st`, `.adoc` | Project documentation |
 | **JVM Languages** | `.kt`, `.scala` | Kotlin and Scala source |
 | **Database** | `.sql`, `.cql` | Database schemas and queries |
-| **Web Technologies** | `.html`, `.css`, `.js`, `.jsp`, `.asp`, `.aspx`, `.php` | Frontend and web components |
-| **System Scripts** | `.conf`, `.cmd`, `.sh` | Configuration and automation |
+| **Web Technologies** | `.html`, `.css`, `.js`, `.ts`, `.jsp`, `.asp`, `.aspx`, `.php` | Frontend and web components |
+| **System Scripts** | `.conf`, `.cmd`, `.sh`, `.ps1` | Configuration and automation |
 | **Programming Languages** | `.py`, `.c`, `.cpp`, `.cs`, `.rb`, `.vb`, `.go`, `.swift`, `.lua`, `.pl`, `.r` | Multi-language support |
 | **Documents** | `.pdf` | Documentation and specs |
 
@@ -186,11 +186,19 @@ chmod +x setup-models.sh
    - Generate an API key from the dashboard
 
 4. **Update Configuration:**
-   ```properties
-   # In src/main/resources/application.properties
-   spring.ai.vectorstore.qdrant.host=xyz-123.qdrant.tech
-   spring.ai.vectorstore.qdrant.api-key=your-generated-api-key
+   ```bash
+   # Copy the environment template
+   cp .env.example .env
+   
+   # Edit .env file with your Qdrant details:
+   QDRANT_HOST=xyz-123.qdrant.tech
+   QDRANT_API_KEY=your-generated-api-key
    ```
+
+5. **Dynamic Collection Naming:**
+   - **Codebase directory**: Creates collection `codebase-index-ollama`
+   - **Other directories**: Creates collection `codebase-index`
+   - Collection names are set automatically based on the directory being indexed
 
 ## 🚀 Quick Start Summary
 
@@ -218,8 +226,9 @@ chmod +x setup-models.sh
    # Copy the environment template
    cp .env.example .env
    
-   # Edit .env with your Qdrant Cloud details
-   # Update QDRANT_HOST and QDRANT_API_KEY
+   # Edit .env with your configuration:
+   # - Qdrant Cloud details (QDRANT_HOST, QDRANT_API_KEY)
+   # - Ollama configuration (OLLAMA_BASE_URL, models)
    ```
 
 5. **Run the Application**
@@ -445,7 +454,7 @@ Comprehensive help and documentation:
 ║   • Config: .xml, .yml, .properties, .json        ║
 ║   • Web: .html, .css, .jsp, .php                  ║
 ║   • Docs: .md, .txt, .adoc                        ║
-║   • Scripts: .sh, .cmd, .sql                      ║
+║   • Scripts: .sh, .cmd, .ps1, .sql                ║
 ║                                                   ║
 ║ ⚡ PERFORMANCE:                                   ║
 ║   • Search available during indexing              ║

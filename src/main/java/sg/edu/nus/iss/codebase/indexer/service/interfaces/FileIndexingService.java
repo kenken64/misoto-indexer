@@ -43,6 +43,18 @@ public interface FileIndexingService {
     void setIndexingDirectory(String directory);
     
     /**
+     * Set the indexing directory and collection name based on the directory
+     * @param directory The directory to index
+     */
+    void setIndexingDirectoryWithCollection(String directory);
+    
+    /**
+     * Set the Qdrant collection name
+     * @param collectionName The collection name to use
+     */
+    void setCollectionName(String collectionName);
+    
+    /**
      * Reset indexing statistics and cache
      */
     void resetIndexing();
@@ -77,7 +89,17 @@ public interface FileIndexingService {
     int getIndexedFileCount();
     int getTotalFileCount();
     double getIndexingProgress();
-    void restartIndexing();
-    void clearCacheAndReindex();
+    void restartIndexing();    void clearCacheAndReindex();
+    
+    /**
+     * Get the current collection name
+     * @return The current collection name
+     */
+    String getCurrentCollectionName();
+    
+    /**
+     * Get the current indexing directory
+     * @return The current indexing directory
+     */
     String getCurrentIndexingDirectory();
 }

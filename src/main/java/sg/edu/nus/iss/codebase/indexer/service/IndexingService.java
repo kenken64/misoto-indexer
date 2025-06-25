@@ -30,10 +30,10 @@ package sg.edu.nus.iss.codebase.indexer.service;
  */
 
 import org.springframework.ai.document.Document;
+import sg.edu.nus.iss.codebase.indexer.config.DynamicVectorStoreFactory;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.EnableAsync;
@@ -43,6 +43,10 @@ import io.qdrant.client.grpc.Collections.CreateCollection;
 import io.qdrant.client.grpc.Collections.Distance;
 import io.qdrant.client.grpc.Collections.VectorParams;
 import io.qdrant.client.grpc.Collections.CollectionInfo;
+
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.Level;
+import org.slf4j.LoggerFactory;
 
 import jakarta.annotation.PostConstruct;
 import java.io.File;
@@ -60,24 +64,22 @@ import java.util.stream.Stream;
 
 @Service
 @EnableAsync
-public class IndexingService {
+public class IndexingService {    @Autowired
+    private VectorStore vectorStore;
 
     @Autowired
-    private VectorStore vectorStore;
-    
-    @Autowired
     private QdrantClient qdrantClient;
+
+    @Autowired
+    private DynamicVectorStoreFactory vectorStoreFactory;
     
     @Autowired
     @Qualifier("indexingExecutor")
     private Executor indexingExecutor;
-    
-    @Autowired
+      @Autowired
     @Qualifier("virtualThreadExecutor")
-    private Executor virtualThreadExecutor;
-    
-    @Value("${spring.ai.vectorstore.qdrant.collection-name:codebase-index}")
-    private String collectionName;
+    private Executor virtualThreadExecutor;    // Collection name will be set dynamically based on directory being indexed
+    private String collectionName = "codebase-index";
 
     // Progress tracking
     private final AtomicInteger totalFiles = new AtomicInteger(0);
@@ -121,12 +123,10 @@ public class IndexingService {
         
         // Database
         ".sql", ".cql",
-        
-        // Web technologies
-        ".html", ".css", ".js", ".jsp", ".asp", ".aspx", ".php",
-        
-        // System and configuration
-        ".conf", ".cmd", ".sh",
+          // Web technologies
+        ".html", ".css", ".js", ".ts", ".jsp", ".asp", ".aspx", ".php",
+          // System and configuration
+        ".conf", ".cmd", ".sh", ".ps1",
         
         // Programming languages
         ".py", ".c", ".cpp", ".cs", ".rb", ".vb", ".go", ".swift", 
@@ -136,23 +136,23 @@ public class IndexingService {
         ".pdf"
     );// Persistence for indexed files
     private static final String INDEXED_FILES_CACHE = ".indexed_files_cache.txt";
-    private final Map<String, Long> fileModificationTimes = new ConcurrentHashMap<>();
-
-    @PostConstruct
+    private final Map<String, Long> fileModificationTimes = new ConcurrentHashMap<>();    @PostConstruct
     public void initializeIndexing() {
         System.out.println("🚀 Starting hybrid indexing system...");
-        initializeQdrantCollection();
-        // Don't start indexing automatically - wait for directory to be set
-    }    private void initializeQdrantCollection() {
-        try {
+        // Skip collection initialization - will be done when directory is set
+        // initializeQdrantCollection();
+    }private void initializeQdrantCollection() {
+        // Temporarily suppress all gRPC and Qdrant logging during initialization
+        suppressLogging();
+          try {
             System.out.println("🔧 Checking Qdrant collection: " + collectionName);
             
             // Check if collection exists
-            boolean collectionExists = checkCollectionExists();
+            boolean collectionExists = checkCollectionExists(collectionName);
             
             if (!collectionExists) {
                 System.out.println("🆕 Creating Qdrant collection: " + collectionName);
-                createCollection();
+                createCollection(collectionName);
                 System.out.println("✅ Qdrant collection created successfully");
             } else {
                 System.out.println("✅ Qdrant collection ready");
@@ -161,11 +161,54 @@ public class IndexingService {
         } catch (Exception e) {
             System.err.println("⚠️ Warning: Could not initialize Qdrant collection: " + e.getMessage());
             System.err.println("💡 Make sure Ollama is running with nomic-embed-text model");
+        } finally {
+            // Restore normal logging
+            restoreLogging();
         }
-    }    private boolean checkCollectionExists() {
+    }
+    
+    private void suppressLogging() {
+        // Suppress gRPC and Qdrant loggers programmatically
+        setLoggerLevel("io.grpc", Level.OFF);
+        setLoggerLevel("io.qdrant", Level.OFF);
+        setLoggerLevel("io.netty", Level.OFF);
+        setLoggerLevel("grpc", Level.OFF);
+    }
+    
+    private void restoreLogging() {
+        // Restore to WARN level (as per application.properties)
+        setLoggerLevel("io.grpc", Level.WARN);
+        setLoggerLevel("io.qdrant", Level.WARN);
+        setLoggerLevel("io.netty", Level.WARN);
+        setLoggerLevel("grpc", Level.WARN);
+    }
+    
+    private void setLoggerLevel(String loggerName, Level level) {
         try {
-            CollectionInfo info = qdrantClient.getCollectionInfoAsync(collectionName).get();
-            return info != null;
+            Logger logger = (Logger) LoggerFactory.getLogger(loggerName);
+            logger.setLevel(level);
+        } catch (Exception e) {
+            // Ignore any errors setting log levels
+        }
+    }private boolean checkCollectionExists(String targetCollectionName) {
+        try {
+            CollectionInfo info = qdrantClient.getCollectionInfoAsync(targetCollectionName).get();
+            if (info != null) {
+                // Check if the collection has the right vector dimensions
+                // nomic-embed-text produces 768-dimensional embeddings
+                var vectorConfig = info.getConfig().getParams().getVectorsConfig();
+                if (vectorConfig.hasParams()) {
+                    long dimensions = vectorConfig.getParams().getSize();
+                    if (dimensions != 768) {
+                        System.out.println("⚠️ Collection " + targetCollectionName + " has wrong dimensions: " + dimensions + " (expected 768)");
+                        System.out.println("🗑️ Deleting and recreating collection with correct dimensions...");
+                        deleteCollection(targetCollectionName);
+                        return false; // Will trigger recreation
+                    }
+                }
+                return true;
+            }
+            return false;
         } catch (java.util.concurrent.ExecutionException e) {
             // Check if the error message indicates collection doesn't exist
             String errorMessage = e.getMessage();
@@ -188,7 +231,16 @@ public class IndexingService {
             System.err.println("⚠️ Warning: Unexpected error checking collection existence: " + e.getMessage());
             return false;
         }
-    }private void createCollection() throws Exception {
+    }
+    
+    private void deleteCollection(String targetCollectionName) {
+        try {
+            qdrantClient.deleteCollectionAsync(targetCollectionName).get();
+            System.out.println("🗑️ Deleted collection: " + targetCollectionName);
+        } catch (Exception e) {
+            System.err.println("⚠️ Warning: Error deleting collection " + targetCollectionName + ": " + e.getMessage());
+        }
+    }private void createCollection(String targetCollectionName) throws Exception {
         // Create vector parameters for embeddings
         // nomic-embed-text produces 768-dimensional embeddings
         VectorParams vectorParams = VectorParams.newBuilder()
@@ -198,7 +250,7 @@ public class IndexingService {
 
         // Create collection request
         CreateCollection createCollection = CreateCollection.newBuilder()
-            .setCollectionName(collectionName)
+            .setCollectionName(targetCollectionName)
             .setVectorsConfig(
                 io.qdrant.client.grpc.Collections.VectorsConfig.newBuilder()
                     .setParams(vectorParams)
@@ -208,7 +260,7 @@ public class IndexingService {
 
         // Execute collection creation
         qdrantClient.createCollectionAsync(createCollection).get();
-    }    /**
+    }/**
      * Set the directory to index
      */
     public void setIndexingDirectory(String directory) {
@@ -475,22 +527,50 @@ public class IndexingService {
                 fileTypeStatistics.put(fileType, count);
             }
             count.incrementAndGet();
-            
-            // STEP 1: Raw Text Extraction
-            List<Document> documents = createDocumentsFromFile(file);
-            if (!documents.isEmpty()) {
-                // STEP 2-4: Text → nomic-embed-text → Vector → Qdrant 
-                // This happens inside vectorStore.add() which:
-                // 1. Takes raw text from Document
-                // 2. Sends to nomic-embed-text model for embedding
-                // 3. Converts to vector representation 
-                // 4. Stores in Qdrant with metadata                vectorStore.add(documents);
-                
-                indexedFilePaths.add(file.getAbsolutePath());
-                indexedFiles.incrementAndGet();
-                
-                // Save to persistent cache to avoid re-indexing
-                saveIndexedFile(file.getAbsolutePath());
+              // STEP 1: Raw Text Extraction
+            List<Document> documents = createDocumentsFromFile(file);            if (!documents.isEmpty()) {
+                try {
+                    // STEP 2-4: Text → nomic-embed-text → Vector → Qdrant 
+                    // Use dynamic VectorStore with the correct collection name for this directory
+                    VectorStore dynamicVectorStore = vectorStoreFactory.createVectorStore(collectionName);
+                    
+                    // This happens inside vectorStore.add() which:
+                    // 1. Takes raw text from Document
+                    // 2. Sends to nomic-embed-text model for embedding
+                    // 3. Converts to vector representation 
+                    // 4. Stores in Qdrant with metadata in the correct collection
+                    dynamicVectorStore.add(documents);
+                    
+                    indexedFilePaths.add(file.getAbsolutePath());
+                    indexedFiles.incrementAndGet();
+                    
+                    // Save to persistent cache to avoid re-indexing
+                    saveIndexedFile(file.getAbsolutePath());
+                      } catch (Exception embeddingError) {
+                    // Handle specific embedding/encoding errors
+                    String errorMessage = embeddingError.getMessage();
+                    if (errorMessage != null && (
+                        errorMessage.contains("Encoding special tokens") ||
+                        errorMessage.contains("token") ||
+                        errorMessage.contains("encoding") ||
+                        errorMessage.contains("special"))) {
+                        
+                        System.out.println("⚠️ Failed to index " + file.getName() + ": " + errorMessage);
+                        // Mark as skipped due to encoding issues
+                        skippedFiles.incrementAndGet();
+                        
+                        // Track files that couldn't be embedded using the already declared fileType variable
+                        AtomicInteger skipCount = skippedFileExtensions.get(fileType);
+                        if (skipCount == null) {
+                            skipCount = new AtomicInteger(0);
+                            skippedFileExtensions.put(fileType, skipCount);
+                        }
+                        skipCount.incrementAndGet();
+                    } else {
+                        // Re-throw other types of errors
+                        throw embeddingError;
+                    }
+                }
                 
                 // Progress tracking for internal use only - no console output
             } else {
@@ -518,14 +598,17 @@ public class IndexingService {
                 
                 // STEP 1a: Read raw text content from file
                 String content = Files.readString(file.toPath());
-                
-                // STEP 1b: Create metadata for the document
+                  // STEP 1b: Create metadata for the document
                 Map<String, Object> metadata = new HashMap<>();
                 metadata.put("filename", file.getName());
                 metadata.put("filepath", file.getAbsolutePath());
                 metadata.put("filetype", getFileExtension(file));
                 metadata.put("priority", String.valueOf(getFilePriority(file)));
                 metadata.put("size", String.valueOf(file.length()));
+                metadata.put("lastModified", String.valueOf(file.lastModified()));
+                metadata.put("lastModifiedDate", new java.util.Date(file.lastModified()).toString());
+                metadata.put("collectionName", collectionName);
+                metadata.put("indexedAt", new java.util.Date().toString());
                 
                 // STEP 1c: Split large files into manageable chunks
                 // Each chunk will be processed through: Text → nomic-embed-text → Vector → Qdrant
@@ -827,67 +910,80 @@ public class IndexingService {
             System.err.println("⚠️ Error removing deleted files from vector store: " + e.getMessage());
         }
     }
-    
-    /**
+      /**
      * Restart the indexing process
      */
     public void restartIndexing() {
         try {
             System.out.println("🔄 Restarting indexing process...");
             
-            // Reset state
+            // Step 1: Delete and recreate the Qdrant collection to remove all old vector data
+            deleteAndRecreateCollection();
+            
+            // Step 2: Reset state
             indexingInProgress = false;
             indexingComplete = false;
             indexedFiles.set(0);
             startTime.set(System.currentTimeMillis());
             
-            // Clear progress tracking
-            //priorityFilesIndexed = false;
+            // Step 3: Clear local cache and file modification times
+            indexedFilePaths.clear();
+            fileModificationTimes.clear();
             
-            // Start fresh indexing
+            // Step 4: Clear the cache file on disk
+            clearIndexedFilesCache();
+            
+            // Step 5: Reset all counters and statistics
+            failedFiles.set(0);
+            skippedFiles.set(0);
+            fileTypeStatistics.clear();
+            skippedFileExtensions.clear();
+            
+            // Step 6: Start fresh indexing with clean collection
             startHybridIndexing();
             
-            System.out.println("✅ Indexing restarted successfully");
+            System.out.println("✅ Collection cleared and indexing restarted successfully");
             
         } catch (Exception e) {
             System.err.println("❌ Failed to restart indexing: " + e.getMessage());
             throw new RuntimeException("Failed to restart indexing", e);
         }
     }
-    
-    /**
+      /**
      * Clear cache and reindex all files
      */
     public void clearCacheAndReindex() {
         try {
             System.out.println("🗑️ Clearing cache and starting fresh indexing...");
             
-            // Clear the cached file set
-            indexedFilePaths.clear();
+            // Step 1: Delete and recreate the Qdrant collection to remove all old vector data
+            deleteAndRecreateCollection();
             
-            // Reset all counters
+            // Step 2: Clear the local cached file set
+            indexedFilePaths.clear();
+            fileModificationTimes.clear();
+            
+            // Step 3: Clear the cache file on disk
+            clearIndexedFilesCache();
+            
+            // Step 4: Reset all counters
             indexedFiles.set(0);
             failedFiles.set(0);
             skippedFiles.set(0);
             fileTypeStatistics.clear();
             skippedFileExtensions.clear();
             
-            // Reset timing
+            // Step 5: Reset timing
             startTime.set(System.currentTimeMillis());
             
-            // Reset status flags
+            // Step 6: Reset status flags
             indexingInProgress = false;
             indexingComplete = false;
-            //priorityFilesIndexed = false;
             
-            // TODO: Clear vector store if possible
-            // Note: Qdrant doesn't have a simple "clear collection" API
-            // You would need to delete and recreate the collection
-            
-            // Start fresh indexing
+            // Step 7: Start fresh indexing with clean collection
             startHybridIndexing();
             
-            System.out.println("✅ Cache cleared and reindexing started");
+            System.out.println("✅ Collection cleared, cache cleared, and reindexing started");
             
         } catch (Exception e) {
             System.err.println("❌ Failed to clear cache and reindex: " + e.getMessage());
@@ -900,5 +996,199 @@ public class IndexingService {
      */
     public String getCurrentIndexingDirectory() {
         return indexingDirectory != null ? indexingDirectory : "Not set";
+    }    /**
+     * Set the Qdrant collection name dynamically
+     * @param collectionName the name of the collection to use
+     */
+    public void setCollectionName(String collectionName) {
+        this.collectionName = collectionName;
+        System.out.println("📦 Collection name set to: " + collectionName);
+        
+        // Initialize both our dynamic collection AND the default VectorStore collection
+        initializeBothCollections();
+    }
+      /**
+     * Initialize the dynamic collection based on the directory being indexed
+     */
+    private void initializeBothCollections() {
+        suppressLogging();
+        
+        try {
+            // Initialize our dynamically named collection
+            System.out.println("🔧 Checking dynamic collection: " + collectionName);
+            if (!checkCollectionExists(collectionName)) {
+                System.out.println("🆕 Creating dynamic collection: " + collectionName);
+                createCollection(collectionName);
+                System.out.println("✅ Dynamic collection created: " + collectionName);
+            } else {
+                System.out.println("✅ Dynamic collection ready: " + collectionName);
+            }
+            
+        } catch (Exception e) {
+            System.err.println("⚠️ Warning: Error during collection initialization: " + e.getMessage());
+        } finally {
+            restoreLogging();
+        }
+    }
+    
+    /**
+     * Clean up existing collections with wrong dimensions and initialize the correct collection
+     */
+    private void cleanupAndInitializeCollection() {
+        suppressLogging();
+        
+        try {
+            // First, clean up any collections that might have wrong dimensions
+            cleanupWrongDimensionCollections();
+            
+            // Then initialize our collection
+            initializeQdrantCollection();
+            
+        } catch (Exception e) {
+            System.err.println("⚠️ Warning: Error during collection cleanup and initialization: " + e.getMessage());
+        } finally {
+            restoreLogging();
+        }
+    }
+    
+    /**
+     * Clean up collections that have wrong vector dimensions
+     */
+    private void cleanupWrongDimensionCollections() {
+        try {
+            // List of potential collection names that might exist with wrong dimensions
+            String[] potentialCollections = {
+                "codebase-index", 
+                "codebase-index-ollama", 
+                "codebase-index-spring-ai",
+                collectionName // Also check our current collection name
+            };
+            
+            for (String collName : potentialCollections) {
+                try {
+                    CollectionInfo info = qdrantClient.getCollectionInfoAsync(collName).get();
+                    if (info != null) {
+                        var vectorConfig = info.getConfig().getParams().getVectorsConfig();
+                        if (vectorConfig.hasParams()) {
+                            long dimensions = vectorConfig.getParams().getSize();
+                            if (dimensions != 768) {
+                                System.out.println("🗑️ Deleting collection '" + collName + "' with wrong dimensions: " + dimensions);
+                                qdrantClient.deleteCollectionAsync(collName).get();
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    // Collection doesn't exist or other error - ignore
+                    String errorMessage = e.getMessage();
+                    if (errorMessage == null || 
+                        (!errorMessage.contains("NOT_FOUND") && !errorMessage.contains("doesn't exist"))) {
+                        System.err.println("⚠️ Warning checking collection '" + collName + "': " + e.getMessage());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("⚠️ Warning during collection cleanup: " + e.getMessage());
+        }
+    }
+      /**
+     * Set both indexing directory and collection name for the codebase directory
+     * @param directory the directory to index  
+     */
+    public void setIndexingDirectoryWithCollection(String directory) {
+        setIndexingDirectory(directory);
+        
+        // Generate collection name based on the actual directory being indexed
+        String collectionName = generateCollectionName(directory);
+        setCollectionName(collectionName);
+    }
+    
+    /**
+     * Generate collection name based on directory path
+     * Examples:
+     * - d:\Projects\misoto-indexer\codebase\spring-ai → codebase-index-spring-ai
+     * - d:\Projects\misoto-indexer\codebase\ollama → codebase-index-ollama  
+     * - d:\Projects\misoto-indexer\src → codebase-index-src
+     * - /home/user/project → codebase-index-project
+     */
+    private String generateCollectionName(String directory) {
+        try {
+            // Normalize path separators
+            String normalizedDir = directory.replace('\\', '/');
+            
+            // Extract the last directory name
+            String[] parts = normalizedDir.split("/");
+            String lastDir = parts[parts.length - 1];
+            
+            // If it's within a codebase directory, use the subdirectory name
+            if (directory.contains("codebase") && parts.length >= 2) {
+                // Find the index of "codebase" in the path
+                for (int i = 0; i < parts.length; i++) {
+                    if ("codebase".equals(parts[i]) && i + 1 < parts.length) {
+                        // Use the directory after "codebase"
+                        lastDir = parts[i + 1];
+                        break;
+                    }
+                }
+            }
+            
+            // Clean up the directory name (remove special characters, lowercase)
+            String cleanName = lastDir.replaceAll("[^a-zA-Z0-9\\-_]", "-")
+                                     .replaceAll("-+", "-")
+                                     .toLowerCase()
+                                     .replaceAll("^-|-$", ""); // Remove leading/trailing dashes
+            
+            return "codebase-index-" + cleanName;
+            
+        } catch (Exception e) {
+            System.err.println("⚠️ Error generating collection name for " + directory + ": " + e.getMessage());
+            // Fallback to default
+            return "codebase-index";
+        }
+    }
+
+    /**
+     * Get the current collection name being used for indexing
+     */    public String getCurrentCollectionName() {
+        return collectionName;
+    }
+    
+    /**
+     * Delete and recreate the Qdrant collection to ensure clean vector data
+     */
+    private void deleteAndRecreateCollection() {
+        suppressLogging();
+        
+        try {
+            System.out.println("🗑️ Deleting Qdrant collection: " + collectionName);
+            
+            // Step 1: Try to delete the existing collection
+            try {
+                qdrantClient.deleteCollectionAsync(collectionName).get();
+                System.out.println("✅ Collection deleted: " + collectionName);
+            } catch (Exception deleteError) {
+                // Collection might not exist - that's fine
+                String errorMessage = deleteError.getMessage();
+                if (errorMessage != null && 
+                    (errorMessage.contains("NOT_FOUND") || errorMessage.contains("doesn't exist"))) {
+                    System.out.println("ℹ️ Collection didn't exist: " + collectionName);
+                } else {
+                    System.err.println("⚠️ Warning deleting collection: " + deleteError.getMessage());
+                }
+            }
+            
+            // Step 2: Wait a moment for deletion to complete
+            Thread.sleep(1000);
+            
+            // Step 3: Create the collection fresh with correct dimensions
+            System.out.println("🆕 Creating fresh Qdrant collection: " + collectionName);
+            createCollection(collectionName);
+            System.out.println("✅ Fresh collection created: " + collectionName);
+            
+        } catch (Exception e) {
+            System.err.println("❌ Error during collection deletion/recreation: " + e.getMessage());
+            throw new RuntimeException("Failed to delete and recreate collection", e);
+        } finally {
+            restoreLogging();
+        }
     }
 }

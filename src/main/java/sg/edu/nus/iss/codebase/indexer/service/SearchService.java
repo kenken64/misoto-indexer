@@ -23,27 +23,51 @@ public class SearchService {
         // Test connections on startup
         testConnections();
     }
-    
-    private void testConnections() {
+      private void testConnections() {
         System.out.println("🔧 Testing AI and database connections...");
         
-        // Test Ollama connection
+        // Test Ollama connection with timeout
         try {
-            chatModel.call("test");
+            // Use a simple, lightweight test
+            java.util.concurrent.CompletableFuture<String> future = java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                try {
+                    return chatModel.call("test");
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            });
+            
+            // Wait for 10 seconds maximum
+            future.get(10, java.util.concurrent.TimeUnit.SECONDS);
             System.out.println("✅ Ollama connection successful");
+        } catch (java.util.concurrent.TimeoutException e) {
+            System.err.println("⚠️ Ollama connection timeout - continuing without AI features");
+            System.err.println("   Start Ollama and run 'ollama pull codellama:7b' to enable AI analysis");
         } catch (Exception e) {
-            System.err.println("❌ Ollama connection failed: " + e.getMessage());
+            System.err.println("⚠️ Ollama connection failed - continuing without AI features");
             System.err.println("   Make sure Ollama is running and CodeLlama model is available");
         }
         
-        // Test Qdrant connection
+        // Test Qdrant connection with timeout
         try {
-            // This will test the connection to Qdrant Cloud
-            embeddingModel.embed("test");
+            // Use a simple, lightweight test
+            java.util.concurrent.CompletableFuture<Void> future = java.util.concurrent.CompletableFuture.runAsync(() -> {
+                try {
+                    embeddingModel.embed("test");
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            });
+            
+            // Wait for 10 seconds maximum  
+            future.get(10, java.util.concurrent.TimeUnit.SECONDS);
             System.out.println("✅ Qdrant Cloud connection successful");
+        } catch (java.util.concurrent.TimeoutException e) {
+            System.err.println("⚠️ Qdrant Cloud connection timeout - vector search may not work");
+            System.err.println("   Check your network connection and Qdrant Cloud settings");
         } catch (Exception e) {
-            System.err.println("❌ Qdrant Cloud connection failed: " + e.getMessage());
-            System.err.println("   Check your cluster URL and API key in application.properties");
+            System.err.println("⚠️ Qdrant Cloud connection failed - vector search may not work");
+            System.err.println("   Check your cluster URL and API key in .env file");
         }
     }/**
      * Search using natural language prompt

@@ -29,12 +29,10 @@ public class IndexingConfiguration {
         
         // Database
         ".sql", ".cql",
-        
-        // Web technologies
-        ".html", ".css", ".js", ".jsp", ".asp", ".aspx", ".php",
-        
-        // System and configuration
-        ".conf", ".cmd", ".sh",
+          // Web technologies
+        ".html", ".css", ".js", ".ts", ".jsp", ".asp", ".aspx", ".php",
+          // System and configuration
+        ".conf", ".cmd", ".sh", ".ps1",
         
         // Programming languages
         ".py", ".c", ".cpp", ".cs", ".rb", ".vb", ".go", ".swift", 
@@ -200,6 +198,49 @@ public class IndexingConfiguration {
 
         public void setMaxCacheAge(long maxCacheAge) {
             this.maxCacheAge = maxCacheAge;
+        }
+
+        /**
+         * Generate cache file name based on directory name
+         * Examples:
+         * - codebase/spring-ai → .indexed_spring_ai_files_cache.txt
+         * - codebase/ollama → .indexed_ollama_files_cache.txt
+         * - src → .indexed_src_files_cache.txt
+         */
+        public String generateCacheFileName(String directory) {
+            try {
+                // Normalize path separators
+                String normalizedDir = directory.replace('\\', '/');
+                
+                // Extract the last directory name
+                String[] parts = normalizedDir.split("/");
+                String lastDir = parts[parts.length - 1];
+                
+                // If it's within a codebase directory, use the subdirectory name
+                if (directory.contains("codebase") && parts.length >= 2) {
+                    // Find the index of "codebase" in the path
+                    for (int i = 0; i < parts.length; i++) {
+                        if ("codebase".equals(parts[i]) && i + 1 < parts.length) {
+                            // Use the directory after "codebase"
+                            lastDir = parts[i + 1];
+                            break;
+                        }
+                    }
+                }
+                
+                // Clean up the directory name (remove special characters, lowercase)
+                String cleanName = lastDir.replaceAll("[^a-zA-Z0-9\\-_]", "_")
+                                     .replaceAll("_+", "_")
+                                     .toLowerCase()
+                                     .replaceAll("^_|_$", ""); // Remove leading/trailing underscores
+                
+                return ".indexed_" + cleanName + "_files_cache.txt";
+                
+            } catch (Exception e) {
+                System.err.println("⚠️ Error generating cache file name for " + directory + ": " + e.getMessage());
+                // Fallback to default
+                return ".indexed_files_cache.txt";
+            }
         }
     }
 }

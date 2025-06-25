@@ -23,10 +23,10 @@ public class FileCacheRepositoryImpl implements FileCacheRepository {
     private final IndexingConfiguration config;
     private final Set<String> indexedFilePaths = ConcurrentHashMap.newKeySet();
     private final Map<String, Long> fileModificationTimes = new ConcurrentHashMap<>();
-
-    @Autowired
+    private String currentCacheFileName; // Dynamic cache file name    @Autowired
     public FileCacheRepositoryImpl(IndexingConfiguration config) {
         this.config = config;
+        this.currentCacheFileName = config.getCache().getCacheFileName(); // Default cache file name
     }
 
     @Override
@@ -65,11 +65,10 @@ public class FileCacheRepositoryImpl implements FileCacheRepository {
             
             indexedFilePaths.add(filePath);
             fileModificationTimes.put(filePath, modTime);
-            
-            // Persist to cache file
+              // Persist to cache file
             if (config.getCache().isEnabled()) {
                 String cacheEntry = "INDEXED:" + filePath + "|" + modTime + System.lineSeparator();
-                Files.writeString(Paths.get(config.getCache().getCacheFileName()), 
+                Files.writeString(Paths.get(getCurrentCacheFileName()), 
                     cacheEntry, 
                     StandardOpenOption.CREATE, StandardOpenOption.APPEND);
             }
@@ -88,10 +87,8 @@ public class FileCacheRepositoryImpl implements FileCacheRepository {
     public void loadCache() {
         if (!config.getCache().isEnabled()) {
             return;
-        }
-
-        try {
-            Path cacheFile = Paths.get(config.getCache().getCacheFileName());
+        }        try {
+            Path cacheFile = Paths.get(getCurrentCacheFileName());
             if (Files.exists(cacheFile)) {
                 List<String> cachedFiles = Files.readAllLines(cacheFile);
                 List<String> validCacheEntries = new ArrayList<>();
@@ -150,10 +147,9 @@ public class FileCacheRepositoryImpl implements FileCacheRepository {
     public void clearCache() {
         indexedFilePaths.clear();
         fileModificationTimes.clear();
-        
-        if (config.getCache().isEnabled()) {
+          if (config.getCache().isEnabled()) {
             try {
-                Files.deleteIfExists(Paths.get(config.getCache().getCacheFileName()));
+                Files.deleteIfExists(Paths.get(getCurrentCacheFileName()));
             } catch (Exception e) {
                 System.err.println("⚠️ Could not clear cache file: " + e.getMessage());
             }
@@ -180,6 +176,19 @@ public class FileCacheRepositoryImpl implements FileCacheRepository {
         return indexedFilePaths.size();
     }
 
+    @Override
+    public void setCacheFileName(String cacheFileName) {
+        this.currentCacheFileName = cacheFileName;
+        System.out.println("📁 Cache file set to: " + cacheFileName);
+    }
+
+    /**
+     * Get the current cache file name (either dynamic or default)
+     */
+    private String getCurrentCacheFileName() {
+        return currentCacheFileName != null ? currentCacheFileName : config.getCache().getCacheFileName();
+    }
+
     /**
      * Rebuild the cache file with valid entries only
      */
@@ -187,9 +196,8 @@ public class FileCacheRepositoryImpl implements FileCacheRepository {
         if (!config.getCache().isEnabled()) {
             return;
         }
-        
-        try {
-            Path cacheFile = Paths.get(config.getCache().getCacheFileName());
+          try {
+            Path cacheFile = Paths.get(getCurrentCacheFileName());
             Files.deleteIfExists(cacheFile);
             if (!validEntries.isEmpty()) {
                 Files.write(cacheFile, validEntries, StandardOpenOption.CREATE);

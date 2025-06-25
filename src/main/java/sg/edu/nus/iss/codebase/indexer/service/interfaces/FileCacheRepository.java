@@ -49,4 +49,10 @@ public interface FileCacheRepository {
      * @return Number of files in cache
      */
     int getCacheSize();
+    
+    /**
+     * Set the cache file name for this session
+     * @param cacheFileName The cache file name to use
+     */
+    void setCacheFileName(String cacheFileName);
 }

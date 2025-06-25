@@ -1,6 +1,7 @@
 package sg.edu.nus.iss.codebase.indexer.service.impl;
 
 import org.springframework.ai.document.Document;
+import sg.edu.nus.iss.codebase.indexer.config.DynamicVectorStoreFactory;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -11,6 +12,12 @@ import sg.edu.nus.iss.codebase.indexer.model.IndexingStatus;
 import sg.edu.nus.iss.codebase.indexer.service.interfaces.FileCacheRepository;
 import sg.edu.nus.iss.codebase.indexer.service.interfaces.FileIndexingService;
 import sg.edu.nus.iss.codebase.indexer.service.interfaces.IndexingStatusObserver;
+
+import io.qdrant.client.QdrantClient;
+import io.qdrant.client.grpc.Collections.CreateCollection;
+import io.qdrant.client.grpc.Collections.Distance;
+import io.qdrant.client.grpc.Collections.VectorParams;
+import io.qdrant.client.grpc.Collections.CollectionInfo;
 
 import java.io.File;
 import java.nio.file.Files;
@@ -31,6 +38,8 @@ import java.util.stream.Stream;
  */
 @Service
 public class FileIndexingServiceImpl implements FileIndexingService {    private final VectorStore vectorStore;
+    private final DynamicVectorStoreFactory vectorStoreFactory;
+    private final QdrantClient qdrantClient;
     private final Executor virtualThreadExecutor;
     private final IndexingConfiguration config;
     private final FileCacheRepository cacheRepository;
@@ -60,12 +69,16 @@ public class FileIndexingServiceImpl implements FileIndexingService {    private
     private String indexingDirectory = "src";    @Autowired
     public FileIndexingServiceImpl(
             VectorStore vectorStore,
+            DynamicVectorStoreFactory vectorStoreFactory,
+            QdrantClient qdrantClient,
             @Qualifier("virtualThreadExecutor") Executor virtualThreadExecutor,
             IndexingConfiguration config,
             FileCacheRepository cacheRepository,
             DocumentFactoryManager documentFactoryManager) {
         
         this.vectorStore = vectorStore;
+        this.vectorStoreFactory = vectorStoreFactory;
+        this.qdrantClient = qdrantClient;
         this.virtualThreadExecutor = virtualThreadExecutor;
         this.config = config;
         this.cacheRepository = cacheRepository;
@@ -325,11 +338,17 @@ public class FileIndexingServiceImpl implements FileIndexingService {    private
             count.incrementAndGet();
             
             // Create documents using factory
-            List<Document> documents = documentFactoryManager.createDocuments(file);
-            
-            if (!documents.isEmpty()) {
-                // Store in vector database
-                vectorStore.add(documents);
+            List<Document> documents = documentFactoryManager.createDocuments(file);            if (!documents.isEmpty()) {
+                // Use dynamic vector store with the correct collection name
+                String collectionName = getCurrentCollectionName();
+                
+                // Ensure collection exists before indexing
+                ensureCollectionExists(collectionName);
+                
+                VectorStore dynamicVectorStore = vectorStoreFactory.createVectorStore(collectionName);
+                
+                // Store in vector database with correct collection
+                dynamicVectorStore.add(documents);
                 
                 indexedFiles.incrementAndGet();
                 cacheRepository.saveIndexedFile(file.getAbsolutePath());
@@ -537,40 +556,113 @@ public class FileIndexingServiceImpl implements FileIndexingService {    private
     public double getIndexingProgress() {
         if (totalFiles.get() == 0) return 0.0;
         return (double) indexedFiles.get() / totalFiles.get() * 100.0;
-    }
-
-    @Override
+    }    @Override
     public void restartIndexing() {
-        // Reset state and start indexing again
-        indexingComplete = false;
-        indexingInProgress = false;
-        indexedFiles.set(0);
-        totalFiles.set(0);
-        
-        // Start indexing in current directory
-        startIndexing(indexingDirectory);
+        try {
+            System.out.println("🔄 Restarting indexing process...");
+            
+            // Step 1: Delete and recreate the Qdrant collection to remove all old vector data
+            deleteAndRecreateCollection();
+            
+            // Step 2: Reset state and start indexing again
+            indexingComplete = false;
+            indexingInProgress = false;
+            indexedFiles.set(0);
+            totalFiles.set(0);
+            
+            // Step 3: Clear statistics
+            fileTypeStatistics.clear();
+            skippedFileExtensions.clear();
+            failedFiles.set(0);
+            skippedFiles.set(0);
+            
+            // Step 4: Reset cache repository
+            if (cacheRepository != null) {
+                cacheRepository.clearCache();
+            }
+            
+            // Step 5: Start indexing in current directory with clean collection
+            startIndexing(indexingDirectory);
+            
+            System.out.println("✅ Collection cleared and indexing restarted successfully");
+            
+        } catch (Exception e) {
+            System.err.println("❌ Failed to restart indexing: " + e.getMessage());
+            throw new RuntimeException("Failed to restart indexing", e);
+        }
+    }@Override
+    public void clearCacheAndReindex() {
+        try {
+            System.out.println("🗑️ Clearing cache and starting fresh indexing...");
+            
+            // Step 1: Delete and recreate the Qdrant collection to remove all old vector data
+            deleteAndRecreateCollection();
+            
+            // Step 2: Clear all caches and statistics
+            fileTypeStatistics.clear();
+            skippedFileExtensions.clear();
+            failedFiles.set(0);
+            skippedFiles.set(0);
+            
+            // Step 3: Reset cache repository
+            if (cacheRepository != null) {
+                cacheRepository.clearCache();
+            }
+            
+            // Step 4: Restart indexing with clean collection
+            restartIndexing();
+            
+            System.out.println("✅ Collection cleared, cache cleared, and reindexing started");
+            
+        } catch (Exception e) {
+            System.err.println("❌ Failed to clear cache and reindex: " + e.getMessage());
+            throw new RuntimeException("Failed to clear cache and reindex", e);
+        }
     }
 
     @Override
-    public void clearCacheAndReindex() {
-        // Clear all caches and statistics
-        fileTypeStatistics.clear();
-        skippedFileExtensions.clear();
-        failedFiles.set(0);
-        skippedFiles.set(0);
-        
-        // Reset cache repository
-        if (cacheRepository != null) {
-            cacheRepository.clearCache();
-        }
-        
-        // Restart indexing
-        restartIndexing();
+    public String getCurrentCollectionName() {
+        return generateCollectionName(indexingDirectory);
     }
-
+    
     @Override
     public String getCurrentIndexingDirectory() {
         return indexingDirectory;
+    }
+    
+    @Override
+    public void setCollectionName(String collectionName) {
+        // This is a no-op for this implementation since collection name is derived from directory
+        // Collection name is automatically generated from the indexing directory
+    }
+    
+    @Override    public void setIndexingDirectoryWithCollection(String directory) {
+        setIndexingDirectory(directory);
+        // Collection name is automatically generated from the directory
+        // Start indexing automatically when directory is set
+        System.out.println("🚀 Starting automatic indexing for directory: " + directory);
+        try {
+            startIndexing(directory);
+        } catch (Exception e) {
+            System.err.println("❌ Failed to start automatic indexing: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+    
+    private String generateCollectionName(String directory) {
+        if (directory == null) {
+            return "codebase-index";
+        }
+        
+        String normalizedDir = directory.replace("\\", "/");
+        String dirName = normalizedDir;
+        
+        if (normalizedDir.contains("/")) {
+            String[] parts = normalizedDir.split("/");
+            dirName = parts[parts.length - 1];
+        }
+        
+        return "codebase-index-" + dirName.replaceAll("[^a-zA-Z0-9-]", "-");
     }
 
     // Observer pattern implementation
@@ -599,10 +691,190 @@ public class FileIndexingServiceImpl implements FileIndexingService {    private
     private void notifyIndexingError(Exception error, String context) {
         statusObservers.forEach(observer -> {
             try {
-                observer.onIndexingError(error, context);
-            } catch (Exception e) {
+                observer.onIndexingError(error, context);            } catch (Exception e) {
                 System.err.println("Error notifying error observer: " + e.getMessage());
             }
         });
+    }
+    
+    /**
+     * Ensure the collection exists in Qdrant, creating it if necessary
+     */
+    private void ensureCollectionExists(String collectionName) {
+        try {
+            if (!checkCollectionExists(collectionName)) {
+                createCollection(collectionName);
+            }
+        } catch (Exception e) {
+            System.err.println("⚠️ Warning: Error ensuring collection exists: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Check if a collection exists in Qdrant with correct dimensions
+     */
+    private boolean checkCollectionExists(String targetCollectionName) {
+        try {
+            CollectionInfo info = qdrantClient.getCollectionInfoAsync(targetCollectionName).get();
+            if (info != null) {
+                // Check if the collection has the right vector dimensions
+                // nomic-embed-text produces 768-dimensional embeddings
+                var vectorConfig = info.getConfig().getParams().getVectorsConfig();
+                if (vectorConfig.hasParams()) {
+                    long dimensions = vectorConfig.getParams().getSize();
+                    if (dimensions != 768) {
+                        System.out.println("⚠️ Collection " + targetCollectionName + " has wrong dimensions: " + dimensions + " (expected 768)");
+                        System.out.println("🗑️ Deleting and recreating collection with correct dimensions...");
+                        deleteCollection(targetCollectionName);
+                        return false; // Will trigger recreation
+                    }
+                }
+                return true;
+            }
+            return false;
+        } catch (java.util.concurrent.ExecutionException e) {
+            // Check if the error message indicates collection doesn't exist
+            String errorMessage = e.getMessage();
+            if (errorMessage != null && 
+                (errorMessage.contains("NOT_FOUND") || errorMessage.contains("doesn't exist"))) {
+                // Collection doesn't exist, this is expected
+                return false;
+            }
+            // Log other types of errors (suppress expected ones)
+            return false;
+        } catch (Exception e) {
+            // Check for collection not found in any exception
+            String errorMessage = e.getMessage();
+            if (errorMessage != null && 
+                (errorMessage.contains("NOT_FOUND") || errorMessage.contains("doesn't exist"))) {
+                return false;
+            }
+            // Log unexpected exceptions (suppress expected ones)
+            return false;
+        }
+    }
+    
+    /**
+     * Delete a collection from Qdrant
+     */
+    private void deleteCollection(String targetCollectionName) {
+        try {
+            qdrantClient.deleteCollectionAsync(targetCollectionName).get();
+            System.out.println("🗑️ Deleted collection: " + targetCollectionName);
+        } catch (Exception e) {
+            // Suppress expected collection not found errors
+            if (e.getMessage() == null || 
+                !(e.getMessage().contains("NOT_FOUND") || e.getMessage().contains("doesn't exist"))) {
+                System.err.println("⚠️ Warning: Error deleting collection " + targetCollectionName + ": " + e.getMessage());
+            }
+        }
+    }
+    
+    /**
+     * Create a new collection in Qdrant with correct vector dimensions
+     */
+    private void createCollection(String targetCollectionName) throws Exception {
+        // Create vector parameters for embeddings
+        // nomic-embed-text produces 768-dimensional embeddings
+        VectorParams vectorParams = VectorParams.newBuilder()
+            .setSize(768)  // nomic-embed-text embedding dimension
+            .setDistance(Distance.Cosine)
+            .build();
+
+        // Create collection request
+        CreateCollection createCollection = CreateCollection.newBuilder()
+            .setCollectionName(targetCollectionName)
+            .setVectorsConfig(
+                io.qdrant.client.grpc.Collections.VectorsConfig.newBuilder()
+                    .setParams(vectorParams)
+                    .build()
+            )
+            .build();        // Execute collection creation
+        qdrantClient.createCollectionAsync(createCollection).get();
+        System.out.println("✅ Created collection: " + targetCollectionName);
+    }
+    
+    /**
+     * Delete and recreate the Qdrant collection to ensure clean vector data
+     */
+    private void deleteAndRecreateCollection() {
+        // Temporarily suppress logging
+        suppressLogging();
+        
+        try {
+            String collectionName = getCurrentCollectionName();
+            System.out.println("🗑️ Deleting Qdrant collection: " + collectionName);
+            
+            // Step 1: Try to delete the existing collection
+            try {
+                qdrantClient.deleteCollectionAsync(collectionName).get();
+                System.out.println("✅ Collection deleted: " + collectionName);
+            } catch (Exception deleteError) {
+                // Collection might not exist - that's fine
+                String errorMessage = deleteError.getMessage();
+                if (errorMessage != null && 
+                    (errorMessage.contains("NOT_FOUND") || errorMessage.contains("doesn't exist"))) {
+                    System.out.println("ℹ️ Collection didn't exist: " + collectionName);
+                } else {
+                    System.err.println("⚠️ Warning deleting collection: " + deleteError.getMessage());
+                }
+            }
+            
+            // Step 2: Wait a moment for deletion to complete
+            Thread.sleep(1000);
+            
+            // Step 3: Create the collection fresh with correct dimensions
+            System.out.println("🆕 Creating fresh Qdrant collection: " + collectionName);
+            createCollection(collectionName);
+            System.out.println("✅ Fresh collection created: " + collectionName);
+            
+        } catch (Exception e) {
+            System.err.println("❌ Error during collection deletion/recreation: " + e.getMessage());
+            throw new RuntimeException("Failed to delete and recreate collection", e);
+        } finally {
+            restoreLogging();
+        }
+    }
+    
+    /**
+     * Suppress gRPC and Qdrant logging during collection operations
+     */
+    private void suppressLogging() {
+        try {
+            ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger) 
+                org.slf4j.LoggerFactory.getLogger("io.grpc");
+            logger.setLevel(ch.qos.logback.classic.Level.OFF);
+            
+            logger = (ch.qos.logback.classic.Logger) 
+                org.slf4j.LoggerFactory.getLogger("io.qdrant");
+            logger.setLevel(ch.qos.logback.classic.Level.OFF);
+            
+            logger = (ch.qos.logback.classic.Logger) 
+                org.slf4j.LoggerFactory.getLogger("io.netty");
+            logger.setLevel(ch.qos.logback.classic.Level.OFF);
+        } catch (Exception e) {
+            // Ignore logging configuration errors
+        }
+    }
+    
+    /**
+     * Restore normal logging levels
+     */
+    private void restoreLogging() {
+        try {
+            ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger) 
+                org.slf4j.LoggerFactory.getLogger("io.grpc");
+            logger.setLevel(ch.qos.logback.classic.Level.WARN);
+            
+            logger = (ch.qos.logback.classic.Logger) 
+                org.slf4j.LoggerFactory.getLogger("io.qdrant");
+            logger.setLevel(ch.qos.logback.classic.Level.WARN);
+            
+            logger = (ch.qos.logback.classic.Logger) 
+                org.slf4j.LoggerFactory.getLogger("io.netty");
+            logger.setLevel(ch.qos.logback.classic.Level.WARN);
+        } catch (Exception e) {
+            // Ignore logging configuration errors
+        }
     }
 }

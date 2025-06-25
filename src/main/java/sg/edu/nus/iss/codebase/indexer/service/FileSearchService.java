@@ -7,13 +7,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 @Service
-public class FileSearchService {
-
-    private static final Set<String> SUPPORTED_EXTENSIONS = Set.of(
-        ".java", ".xml", ".properties", ".yml", ".yaml", ".json", ".md", ".txt"
+public class FileSearchService {    private static final Set<String> SUPPORTED_EXTENSIONS = Set.of(
+        ".java", ".xml", ".properties", ".yml", ".yaml", ".json", ".md", ".txt", ".py", ".js", ".ts", ".go", ".rs", ".cpp", ".c", ".h"
     );
     
     // Configurable search directory
@@ -28,8 +27,7 @@ public class FileSearchService {
 
     /**
      * Fallback search using direct file content scanning
-     */
-    public List<SearchResult> searchInFiles(String query) {
+     */    public List<SearchResult> searchInFiles(String query) {
         List<SearchResult> results = new ArrayList<>();
         
         try {
@@ -65,33 +63,34 @@ public class FileSearchService {
             System.err.println("❌ Error in file-based search: " + e.getMessage());
             return List.of();
         }
-    }
-
-    private SearchResult searchInFile(File file, List<String> searchTerms, String originalQuery) {
+    }private SearchResult searchInFile(File file, List<String> searchTerms, String originalQuery) {
         try {
             if (file.length() > 1024 * 1024) { // Skip files larger than 1MB
                 return null;
             }
             
             String content = Files.readString(file.toPath());
-            String contentLower = content.toLowerCase();
+            String[] lines = content.split("\n");
             
             double relevanceScore = 0.0;
             List<String> matchedSnippets = new ArrayList<>();
+            List<LineMatch> lineMatches = new ArrayList<>();
             
             // Check for exact phrase match
-            if (contentLower.contains(originalQuery.toLowerCase())) {
+            if (content.toLowerCase().contains(originalQuery.toLowerCase())) {
                 relevanceScore += 10.0;
                 matchedSnippets.addAll(extractSnippets(content, originalQuery));
+                lineMatches.addAll(findLineMatches(lines, originalQuery));
             }
             
             // Check for individual terms
             for (String term : searchTerms) {
                 String termLower = term.toLowerCase();
-                long count = countOccurrences(contentLower, termLower);
+                long count = countOccurrencesInLines(lines, termLower);
                 if (count > 0) {
                     relevanceScore += count * getTermWeight(term, file);
                     matchedSnippets.addAll(extractSnippets(content, term));
+                    lineMatches.addAll(findLineMatches(lines, term));
                 }
             }
             
@@ -101,13 +100,23 @@ public class FileSearchService {
                     .distinct()
                     .limit(3)
                     .toList();
+                  // Remove duplicate line matches (by line number)
+                List<LineMatch> uniqueLineMatches = lineMatches.stream()
+                    .collect(Collectors.groupingBy(LineMatch::getLineNumber))
+                    .values()
+                    .stream()
+                    .map(group -> group.get(0)) // Take first match for each line number
+                    .sorted((a, b) -> Integer.compare(a.getLineNumber(), b.getLineNumber()))
+                    .limit(10) // Limit to first 10 matches
+                    .toList();
                 
                 return new SearchResult(
                     file.getName(),
                     file.getAbsolutePath(),
                     uniqueSnippets.isEmpty() ? "File contains matching content" : String.join("\n\n", uniqueSnippets),
                     relevanceScore,
-                    "file-search"
+                    "file-search",
+                    uniqueLineMatches
                 );
             }
             
@@ -195,19 +204,16 @@ public class FileSearchService {
     private boolean isSupportedFile(Path path) {
         String fileName = path.getFileName().toString().toLowerCase();
         return SUPPORTED_EXTENSIONS.stream().anyMatch(fileName::endsWith);
-    }
-
-    private boolean isNotInExcludedDirectory(Path path) {
+    }    private boolean isNotInExcludedDirectory(Path path) {
         String pathStr = path.toString().toLowerCase();
         return !pathStr.contains("target") && 
                !pathStr.contains(".git") && 
                !pathStr.contains("node_modules") &&
                !pathStr.contains(".idea") &&
                !pathStr.contains(".vscode") &&
-               !pathStr.contains("codebase"); // Exclude the codebase folder to avoid indexing Spring AI source
-    }
-
-    /**
+               !pathStr.contains("codebase\\spring-ai") && // Exclude only the Spring AI source
+               !pathStr.contains("codebase/spring-ai");   // Support both Windows and Unix paths
+    }/**
      * Search result class for file-based search
      */
     public static class SearchResult {
@@ -216,6 +222,7 @@ public class FileSearchService {
         private final String content;
         private final double relevanceScore;
         private final String searchType;
+        private final List<LineMatch> lineMatches;
 
         public SearchResult(String fileName, String filePath, String content, double relevanceScore, String searchType) {
             this.fileName = fileName;
@@ -223,6 +230,16 @@ public class FileSearchService {
             this.content = content;
             this.relevanceScore = relevanceScore;
             this.searchType = searchType;
+            this.lineMatches = new ArrayList<>();
+        }
+
+        public SearchResult(String fileName, String filePath, String content, double relevanceScore, String searchType, List<LineMatch> lineMatches) {
+            this.fileName = fileName;
+            this.filePath = filePath;
+            this.content = content;
+            this.relevanceScore = relevanceScore;
+            this.searchType = searchType;
+            this.lineMatches = lineMatches != null ? lineMatches : new ArrayList<>();
         }
 
         public String getFileName() { return fileName; }
@@ -230,5 +247,47 @@ public class FileSearchService {
         public String getContent() { return content; }
         public double getRelevanceScore() { return relevanceScore; }
         public String getSearchType() { return searchType; }
+        public List<LineMatch> getLineMatches() { return lineMatches; }
+    }
+
+    /**
+     * Represents a line match with line number and content
+     */
+    public static class LineMatch {
+        private final int lineNumber;
+        private final String lineContent;
+        private final String matchedTerm;
+
+        public LineMatch(int lineNumber, String lineContent, String matchedTerm) {
+            this.lineNumber = lineNumber;
+            this.lineContent = lineContent;
+            this.matchedTerm = matchedTerm;
+        }
+
+        public int getLineNumber() { return lineNumber; }
+        public String getLineContent() { return lineContent; }
+        public String getMatchedTerm() { return matchedTerm; }
+    }
+
+    private List<LineMatch> findLineMatches(String[] lines, String term) {
+        List<LineMatch> matches = new ArrayList<>();
+        String termLower = term.toLowerCase();
+        
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i];
+            if (line.toLowerCase().contains(termLower)) {
+                matches.add(new LineMatch(i + 1, line.trim(), term));
+            }
+        }
+        
+        return matches;
+    }
+    
+    private long countOccurrencesInLines(String[] lines, String term) {
+        long count = 0;
+        for (String line : lines) {
+            count += countOccurrences(line.toLowerCase(), term);
+        }
+        return count;
     }
 }
