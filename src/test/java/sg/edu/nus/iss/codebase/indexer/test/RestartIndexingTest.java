@@ -1,16 +1,19 @@
+package sg.edu.nus.iss.codebase.indexer.test;
+
 /**
- * Test to verify that both restart options properly delete and recreate collections
+ * Test to verify that both restart options properly delete and recreate
+ * collections
  */
 public class RestartIndexingTest {
-    
+
     public static void main(String[] args) {
         System.out.println("=== Restart Indexing Collection Clear Test ===");
-        
+
         testIndexingServiceRestart();
         testFileIndexingServiceRestart();
         demonstrateRestartFlow();
     }
-    
+
     private static void testIndexingServiceRestart() {
         System.out.println("\n1. Testing IndexingService.restartIndexing():");
         System.out.println("   ✅ Now includes deleteAndRecreateCollection()");
@@ -21,7 +24,7 @@ public class RestartIndexingTest {
         System.out.println("   ✅ Resets all counters and statistics");
         System.out.println("   ✅ Starts fresh indexing with clean collection");
     }
-    
+
     private static void testFileIndexingServiceRestart() {
         System.out.println("\n2. Testing FileIndexingServiceImpl.restartIndexing():");
         System.out.println("   ✅ Now includes deleteAndRecreateCollection()");
@@ -31,7 +34,7 @@ public class RestartIndexingTest {
         System.out.println("   ✅ Clears cache repository and statistics");
         System.out.println("   ✅ Starts indexing in current directory with clean collection");
     }
-    
+
     private static void demonstrateRestartFlow() {
         System.out.println("\n3. Restart Indexing Flow (Option 1):");
         System.out.println("   📁 Context: User is indexing 'codebase/dssi-day3-ollama'");
@@ -44,7 +47,7 @@ public class RestartIndexingTest {
         System.out.println("   📁 Step 5: Clear local cache and statistics");
         System.out.println("   🚀 Step 6: Start fresh indexing in same directory");
         System.out.println("   ✅ Result: No old vector data, completely clean restart");
-        
+
         System.out.println("\n4. Clear Cache and Reindex Flow (Option 3):");
         System.out.println("   📁 Context: User is indexing any directory");
         System.out.println("   🔄 User chooses: Option 6 → Option 3 'Clear cache and reindex all files'");
@@ -56,7 +59,7 @@ public class RestartIndexingTest {
         System.out.println("   📁 Step 5: Clear local cache and statistics");
         System.out.println("   🚀 Step 6: Start fresh indexing");
         System.out.println("   ✅ Result: No old vector data, completely clean reindex");
-        
+
         System.out.println("\n🎯 Key Insight:");
         System.out.println("   Both options now ensure NO OLD VECTOR DATA coexists with new data!");
         System.out.println("   This prevents search result contamination and ensures consistency.");

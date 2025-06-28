@@ -75,10 +75,8 @@ public class SearchCLI implements CommandLineRunner {
     }
 
     private void displayWelcomeMessage() {
-        System.out.println();
+        printAsciiArt();
         System.out.println("===============================================================");
-        System.out.println("                 MISOTO CODEBASE INDEXER                   ");
-        System.out.println("                  Intelligent Code Search                   ");
         System.out.println("                   >> HYBRID INDEXING <<                   ");
         System.out.println("===============================================================");
         System.out.println();
@@ -989,5 +987,25 @@ public class SearchCLI implements CommandLineRunner {
                 displayDetailedScores(result);
             }
         }
+    }
+
+    private void printAsciiArt() {
+        // ANSI color codes
+        String CYAN = "\033[96m";      // Bright cyan for "MISOTO"
+        String MAGENTA = "\033[95m";   // Bright magenta for "INDEXER"
+        String GREEN = "\033[92m";     // Bright green for the cute face
+        String BLUE = "\033[94m";      // Bright blue for subtitle
+        String RESET = "\033[0m";      // Reset to default color
+        
+        System.out.println();
+        // MISOTO (Cyan) + INDEXER (Magenta)
+        System.out.println(CYAN + "███╗   ███╗██╗███████╗ ██████╗ ████████╗ ██████╗ " + RESET + "    " + MAGENTA + "██╗███╗   ██╗██████╗ ███████╗██╗  ██╗███████╗██████╗ " + RESET);
+        System.out.println(CYAN + "████╗ ████║██║██╔════╝██╔═══██╗╚══██╔══╝██╔═══██╗" + RESET + "    " + MAGENTA + "██║████╗  ██║██╔══██╗██╔════╝╚██╗██╔╝██╔════╝██╔══██╗" + RESET);
+        System.out.println(CYAN + "██╔████╔██║██║███████╗██║   ██║   ██║   ██║   ██║" + RESET + "    " + MAGENTA + "██║██╔██╗ ██║██║  ██║█████╗   ╚███╔╝ █████╗  ██████╔╝" + RESET);
+        System.out.println(CYAN + "██║╚██╔╝██║██║╚════██║██║   ██║   ██║   ██║   ██║" + RESET + "    " + MAGENTA + "██║██║╚██╗██║██║  ██║██╔══╝   ██╔██╗ ██╔══╝  ██╔══██╗" + RESET);
+        System.out.println(CYAN + "██║ ╚═╝ ██║██║███████║╚██████╔╝   ██║   ╚██████╔╝" + RESET + "    " + MAGENTA + "██║██║ ╚████║██████╔╝███████╗██╔╝ ██╗███████╗██║  ██║" + RESET);
+        System.out.println(CYAN + "╚═╝     ╚═╝╚═╝╚══════╝ ╚═════╝    ╚═╝    ╚═════╝ " + RESET + "    " + MAGENTA + "╚═╝╚═╝  ╚═══╝╚═════╝ ╚══════╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝" + RESET);
+        System.out.println("                                                  " + GREEN + ">.< " + BLUE + "Intelligent Code Search System" + RESET);
+        System.out.println();
     }
 }

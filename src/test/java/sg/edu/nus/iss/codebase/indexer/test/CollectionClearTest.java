@@ -1,3 +1,5 @@
+package sg.edu.nus.iss.codebase.indexer.test;
+
 /**
  * Test to verify that clearCacheAndReindex properly deletes and recreates collections
  */
