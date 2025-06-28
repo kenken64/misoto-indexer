@@ -1,0 +1,426 @@
+package sg.edu.nus.iss.codebase.indexer.service.impl;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.io.TempDir;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.ai.document.Document;
+import sg.edu.nus.iss.codebase.indexer.config.IndexingConfiguration;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.when;
+
+@ExtendWith(MockitoExtension.class)
+class TextDocumentFactoryTest {
+
+    @Mock
+    private IndexingConfiguration config;
+
+    @InjectMocks
+    private TextDocumentFactory textDocumentFactory;
+
+    @TempDir
+    Path tempDir;
+
+    @BeforeEach
+    void setUp() {
+        IndexingConfiguration.ProcessingConfig processingConfig = new IndexingConfiguration.ProcessingConfig();
+        processingConfig.setChunkSize(1000);
+        processingConfig.setChunkOverlap(100);
+        
+        when(config.getProcessing()).thenReturn(processingConfig);
+        when(config.getFilePriorities()).thenReturn(Map.of(
+            "Main", 1,
+            "Service", 2,
+            "Test", 3
+        ));
+    }
+
+    @Test
+    void createDocuments_ShouldCreateDocumentFromJavaFile() throws IOException {
+        // Arrange
+        Path javaFile = tempDir.resolve("TestClass.java");
+        String content = """
+            package com.example;
+            
+            public class TestClass {
+                private String name;
+                
+                public TestClass(String name) {
+                    this.name = name;
+                }
+                
+                public String getName() {
+                    return name;
+                }
+            }
+            """;
+        Files.writeString(javaFile, content);
+
+        // Act
+        List<Document> documents = textDocumentFactory.createDocuments(javaFile);
+
+        // Assert
+        assertThat(documents).hasSize(1);
+        Document document = documents.get(0);
+        assertThat(document.getContent()).contains("public class TestClass");
+        assertThat(document.getContent()).contains("private String name");
+        assertThat(document.getMetadata()).containsKey("file_path");
+        assertThat(document.getMetadata()).containsKey("file_name");
+        assertThat(document.getMetadata()).containsKey("file_extension");
+        assertThat(document.getMetadata()).containsKey("file_size");
+        assertThat(document.getMetadata()).containsKey("priority");
+    }
+
+    @Test
+    void createDocuments_ShouldCreateDocumentFromPythonFile() throws IOException {
+        // Arrange
+        Path pythonFile = tempDir.resolve("test_script.py");
+        String content = """
+            def hello_world():
+                print("Hello, World!")
+            
+            if __name__ == "__main__":
+                hello_world()
+            """;
+        Files.writeString(pythonFile, content);
+
+        // Act
+        List<Document> documents = textDocumentFactory.createDocuments(pythonFile);
+
+        // Assert
+        assertThat(documents).hasSize(1);
+        Document document = documents.get(0);
+        assertThat(document.getContent()).contains("def hello_world()");
+        assertThat(document.getContent()).contains("print(\"Hello, World!\")");
+        assertThat(document.getMetadata()).containsKey("file_path");
+        assertThat(document.getMetadata()).containsKey("file_name");
+        assertThat(document.getMetadata()).containsKey("file_extension");
+        assertThat(document.getMetadata()).containsKey("file_size");
+    }
+
+    @Test
+    void createDocuments_ShouldCreateDocumentFromMarkdownFile() throws IOException {
+        // Arrange
+        Path markdownFile = tempDir.resolve("README.md");
+        String content = """
+            # Project Title
+            
+            This is a sample project.
+            
+            ## Features
+            
+            - Feature 1
+            - Feature 2
+            
+            ## Installation
+            
+            Run the following command:
+            
+            ```bash
+            npm install
+            ```
+            """;
+        Files.writeString(markdownFile, content);
+
+        // Act
+        List<Document> documents = textDocumentFactory.createDocuments(markdownFile);
+
+        // Assert
+        assertThat(documents).hasSize(1);
+        Document document = documents.get(0);
+        assertThat(document.getContent()).contains("# Project Title");
+        assertThat(document.getContent()).contains("## Features");
+        assertThat(document.getContent()).contains("npm install");
+        assertThat(document.getMetadata()).containsKey("file_path");
+        assertThat(document.getMetadata()).containsKey("file_name");
+        assertThat(document.getMetadata()).containsKey("file_extension");
+        assertThat(document.getMetadata()).containsKey("file_size");
+    }
+
+    @Test
+    void createDocuments_ShouldCreateDocumentFromTextFile() throws IOException {
+        // Arrange
+        Path textFile = tempDir.resolve("notes.txt");
+        String content = """
+            These are my notes.
+            Line 1
+            Line 2
+            Line 3
+            """;
+        Files.writeString(textFile, content);
+
+        // Act
+        List<Document> documents = textDocumentFactory.createDocuments(textFile);
+
+        // Assert
+        assertThat(documents).hasSize(1);
+        Document document = documents.get(0);
+        assertThat(document.getContent()).contains("These are my notes");
+        assertThat(document.getContent()).contains("Line 1");
+        assertThat(document.getMetadata()).containsKey("file_path");
+        assertThat(document.getMetadata()).containsKey("file_name");
+        assertThat(document.getMetadata()).containsKey("file_extension");
+        assertThat(document.getMetadata()).containsKey("file_size");
+    }
+
+    @Test
+    void createDocuments_ShouldCreateMultipleDocumentsForLargeFile() throws IOException {
+        // Arrange
+        Path largeFile = tempDir.resolve("large_file.java");
+        StringBuilder content = new StringBuilder();
+        content.append("package com.example;\n\n");
+        content.append("public class LargeClass {\n");
+        
+        // Create content larger than chunk size
+        for (int i = 0; i < 100; i++) {
+            content.append("    public void method").append(i).append("() {\n");
+            content.append("        // This is method ").append(i).append("\n");
+            content.append("        System.out.println(\"Method ").append(i).append("\");\n");
+            content.append("    }\n\n");
+        }
+        content.append("}\n");
+        
+        Files.writeString(largeFile, content.toString());
+
+        // Act
+        List<Document> documents = textDocumentFactory.createDocuments(largeFile);
+
+        // Assert
+        assertThat(documents).hasSizeGreaterThan(1);
+        
+        // All documents should have metadata
+        for (Document document : documents) {
+            assertThat(document.getMetadata()).containsKey("file_path");
+            assertThat(document.getMetadata()).containsKey("file_name");
+            assertThat(document.getMetadata()).containsKey("file_extension");
+            assertThat(document.getMetadata()).containsKey("file_size");
+        }
+        
+        // Content should be properly chunked
+        String fullContent = String.join("", documents.stream()
+            .map(Document::getContent)
+            .toArray(String[]::new));
+        assertThat(fullContent).contains("public class LargeClass");
+        assertThat(fullContent).contains("Method 0");
+        assertThat(fullContent).contains("Method 99");
+    }
+
+    @Test
+    void createDocuments_ShouldHandleEmptyFile() throws IOException {
+        // Arrange
+        Path emptyFile = tempDir.resolve("empty.txt");
+        Files.writeString(emptyFile, "");
+
+        // Act
+        List<Document> documents = textDocumentFactory.createDocuments(emptyFile);
+
+        // Assert
+        assertThat(documents).hasSize(1);
+        Document document = documents.get(0);
+        assertThat(document.getContent()).isEmpty();
+        assertThat(document.getMetadata()).containsKey("file_path");
+        assertThat(document.getMetadata()).containsKey("file_name");
+        assertThat(document.getMetadata()).containsKey("file_extension");
+        assertThat(document.getMetadata()).containsKey("file_size");
+        assertThat(document.getMetadata().get("file_size")).isEqualTo(0L);
+    }
+
+    @Test
+    void createDocuments_ShouldSetCorrectPriorityForMainFiles() throws IOException {
+        // Arrange
+        Path mainFile = tempDir.resolve("MainApplication.java");
+        String content = """
+            package com.example;
+            
+            public class MainApplication {
+                public static void main(String[] args) {
+                    System.out.println("Hello World");
+                }
+            }
+            """;
+        Files.writeString(mainFile, content);
+
+        // Act
+        List<Document> documents = textDocumentFactory.createDocuments(mainFile);
+
+        // Assert
+        assertThat(documents).hasSize(1);
+        Document document = documents.get(0);
+        assertThat(document.getMetadata().get("priority")).isEqualTo(1);
+    }
+
+    @Test
+    void createDocuments_ShouldSetCorrectPriorityForServiceFiles() throws IOException {
+        // Arrange
+        Path serviceFile = tempDir.resolve("UserService.java");
+        String content = """
+            package com.example.service;
+            
+            @Service
+            public class UserService {
+                public User findById(Long id) {
+                    return userRepository.findById(id);
+                }
+            }
+            """;
+        Files.writeString(serviceFile, content);
+
+        // Act
+        List<Document> documents = textDocumentFactory.createDocuments(serviceFile);
+
+        // Assert
+        assertThat(documents).hasSize(1);
+        Document document = documents.get(0);
+        assertThat(document.getMetadata().get("priority")).isEqualTo(2);
+    }
+
+    @Test
+    void createDocuments_ShouldSetCorrectPriorityForTestFiles() throws IOException {
+        // Arrange
+        Path testFile = tempDir.resolve("UserServiceTest.java");
+        String content = """
+            package com.example.service;
+            
+            @ExtendWith(MockitoExtension.class)
+            class UserServiceTest {
+                @Test
+                void shouldFindUserById() {
+                    // test implementation
+                }
+            }
+            """;
+        Files.writeString(testFile, content);
+
+        // Act
+        List<Document> documents = textDocumentFactory.createDocuments(testFile);
+
+        // Assert
+        assertThat(documents).hasSize(1);
+        Document document = documents.get(0);
+        assertThat(document.getMetadata().get("priority")).isEqualTo(3);
+    }
+
+    @Test
+    void createDocuments_ShouldSetDefaultPriorityForOtherFiles() throws IOException {
+        // Arrange
+        Path otherFile = tempDir.resolve("RandomClass.java");
+        String content = """
+            package com.example;
+            
+            public class RandomClass {
+                private String data;
+            }
+            """;
+        Files.writeString(otherFile, content);
+
+        // Act
+        List<Document> documents = textDocumentFactory.createDocuments(otherFile);
+
+        // Assert
+        assertThat(documents).hasSize(1);
+        Document document = documents.get(0);
+        assertThat(document.getMetadata().get("priority")).isEqualTo(10); // Default priority
+    }
+
+    @Test
+    void createDocuments_ShouldThrowExceptionForNonExistentFile() {
+        // Arrange
+        Path nonExistentFile = tempDir.resolve("non_existent.txt");
+
+        // Act & Assert
+        assertThatThrownBy(() -> textDocumentFactory.createDocuments(nonExistentFile))
+            .isInstanceOf(RuntimeException.class)
+            .hasMessageContaining("Failed to read file");
+    }
+
+    @Test
+    void createDocuments_ShouldHandleSpecialCharacters() throws IOException {
+        // Arrange
+        Path specialFile = tempDir.resolve("special_chars.txt");
+        String content = "Special characters: éñüñ 中文 русский العربية 🚀";
+        Files.writeString(specialFile, content);
+
+        // Act
+        List<Document> documents = textDocumentFactory.createDocuments(specialFile);
+
+        // Assert
+        assertThat(documents).hasSize(1);
+        Document document = documents.get(0);
+        assertThat(document.getContent()).contains("éñüñ");
+        assertThat(document.getContent()).contains("中文");
+        assertThat(document.getContent()).contains("русский");
+        assertThat(document.getContent()).contains("العربية");
+        assertThat(document.getContent()).contains("🚀");
+    }
+
+    @Test
+    void createDocuments_ShouldSanitizeContent() throws IOException {
+        // Arrange
+        Path binaryFile = tempDir.resolve("binary_content.txt");
+        String content = "Normal text\u0000\u0001\u0002ABC";
+        Files.writeString(binaryFile, content);
+
+        // Act
+        List<Document> documents = textDocumentFactory.createDocuments(binaryFile);
+
+        // Assert
+        assertThat(documents).hasSize(1);
+        Document document = documents.get(0);
+        assertThat(document.getContent()).contains("ABC"); // Should extract readable text
+        assertThat(document.getContent()).doesNotContain("\u0000"); // Should sanitize null bytes
+    }
+
+    @Test
+    void supports_ShouldReturnTrueForSupportedExtensions() {
+        assertThat(textDocumentFactory.supports(tempDir.resolve("test.java"))).isTrue();
+        assertThat(textDocumentFactory.supports(tempDir.resolve("test.py"))).isTrue();
+        assertThat(textDocumentFactory.supports(tempDir.resolve("test.js"))).isTrue();
+        assertThat(textDocumentFactory.supports(tempDir.resolve("test.ts"))).isTrue();
+        assertThat(textDocumentFactory.supports(tempDir.resolve("test.html"))).isTrue();
+        assertThat(textDocumentFactory.supports(tempDir.resolve("test.css"))).isTrue();
+        assertThat(textDocumentFactory.supports(tempDir.resolve("test.md"))).isTrue();
+        assertThat(textDocumentFactory.supports(tempDir.resolve("test.txt"))).isTrue();
+        assertThat(textDocumentFactory.supports(tempDir.resolve("test.xml"))).isTrue();
+        assertThat(textDocumentFactory.supports(tempDir.resolve("test.json"))).isTrue();
+        assertThat(textDocumentFactory.supports(tempDir.resolve("test.yml"))).isTrue();
+        assertThat(textDocumentFactory.supports(tempDir.resolve("test.yaml"))).isTrue();
+        assertThat(textDocumentFactory.supports(tempDir.resolve("test.properties"))).isTrue();
+        assertThat(textDocumentFactory.supports(tempDir.resolve("test.sql"))).isTrue();
+        assertThat(textDocumentFactory.supports(tempDir.resolve("test.sh"))).isTrue();
+        assertThat(textDocumentFactory.supports(tempDir.resolve("test.bat"))).isTrue();
+        assertThat(textDocumentFactory.supports(tempDir.resolve("test.go"))).isTrue();
+        assertThat(textDocumentFactory.supports(tempDir.resolve("test.rs"))).isTrue();
+        assertThat(textDocumentFactory.supports(tempDir.resolve("test.cpp"))).isTrue();
+        assertThat(textDocumentFactory.supports(tempDir.resolve("test.c"))).isTrue();
+        assertThat(textDocumentFactory.supports(tempDir.resolve("test.h"))).isTrue();
+    }
+
+    @Test
+    void supports_ShouldReturnFalseForUnsupportedExtensions() {
+        assertThat(textDocumentFactory.supports(tempDir.resolve("test.pdf"))).isFalse();
+        assertThat(textDocumentFactory.supports(tempDir.resolve("test.docx"))).isFalse();
+        assertThat(textDocumentFactory.supports(tempDir.resolve("test.xlsx"))).isFalse();
+        assertThat(textDocumentFactory.supports(tempDir.resolve("test.png"))).isFalse();
+        assertThat(textDocumentFactory.supports(tempDir.resolve("test.jpg"))).isFalse();
+        assertThat(textDocumentFactory.supports(tempDir.resolve("test.mp4"))).isFalse();
+        assertThat(textDocumentFactory.supports(tempDir.resolve("test.zip"))).isFalse();
+    }
+
+    @Test
+    void supports_ShouldReturnTrueForFilesWithoutExtension() {
+        assertThat(textDocumentFactory.supports(tempDir.resolve("Dockerfile"))).isTrue();
+        assertThat(textDocumentFactory.supports(tempDir.resolve("Makefile"))).isTrue();
+        assertThat(textDocumentFactory.supports(tempDir.resolve("README"))).isTrue();
+    }
+}

@@ -15,28 +15,30 @@ public class SearchService {
 
     private final ChatModel chatModel;
     private final EmbeddingModel embeddingModel;
-    
+
     public SearchService(ChatModel chatModel, EmbeddingModel embeddingModel, VectorStore vectorStore) {
         this.chatModel = chatModel;
         this.embeddingModel = embeddingModel;
-        
+
         // Test connections on startup
         testConnections();
     }
-      private void testConnections() {
+
+    private void testConnections() {
         System.out.println("🔧 Testing AI and database connections...");
-        
+
         // Test Ollama connection with timeout
         try {
             // Use a simple, lightweight test
-            java.util.concurrent.CompletableFuture<String> future = java.util.concurrent.CompletableFuture.supplyAsync(() -> {
-                try {
-                    return chatModel.call("test");
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
-                }
-            });
-            
+            java.util.concurrent.CompletableFuture<String> future = java.util.concurrent.CompletableFuture
+                    .supplyAsync(() -> {
+                        try {
+                            return chatModel.call("test");
+                        } catch (Exception e) {
+                            throw new RuntimeException(e);
+                        }
+                    });
+
             // Wait for 10 seconds maximum
             future.get(10, java.util.concurrent.TimeUnit.SECONDS);
             System.out.println("✅ Ollama connection successful");
@@ -47,19 +49,20 @@ public class SearchService {
             System.err.println("⚠️ Ollama connection failed - continuing without AI features");
             System.err.println("   Make sure Ollama is running and CodeLlama model is available");
         }
-        
+
         // Test Qdrant connection with timeout
         try {
             // Use a simple, lightweight test
-            java.util.concurrent.CompletableFuture<Void> future = java.util.concurrent.CompletableFuture.runAsync(() -> {
-                try {
-                    embeddingModel.embed("test");
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
-                }
-            });
-            
-            // Wait for 10 seconds maximum  
+            java.util.concurrent.CompletableFuture<Void> future = java.util.concurrent.CompletableFuture
+                    .runAsync(() -> {
+                        try {
+                            embeddingModel.embed("test");
+                        } catch (Exception e) {
+                            throw new RuntimeException(e);
+                        }
+                    });
+
+            // Wait for 10 seconds maximum
             future.get(10, java.util.concurrent.TimeUnit.SECONDS);
             System.out.println("✅ Qdrant Cloud connection successful");
         } catch (java.util.concurrent.TimeoutException e) {
@@ -69,57 +72,61 @@ public class SearchService {
             System.err.println("⚠️ Qdrant Cloud connection failed - vector search may not work");
             System.err.println("   Check your cluster URL and API key in .env file");
         }
-    }/**
+    }
+
+    /**
      * Search using natural language prompt
      */
     public Object searchWithPrompt(String query) {
         System.out.println("🤖 Processing natural language query with CodeLlama: " + query);
-        
+
         try {
             // Use Ollama CodeLlama to understand the query and generate search strategy
             String prompt = """
-                You are a code search assistant. Analyze this search query and provide guidance:
-                Query: %s
-                
-                Please provide:
-                1. What type of code elements the user is looking for
-                2. Relevant keywords to search for
-                3. File patterns that might contain the results
-                
-                Keep the response concise and focused on actionable search guidance.
-                """.formatted(query);
-            
+                    You are a code search assistant. Analyze this search query and provide guidance:
+                    Query: %s
+
+                    Please provide:
+                    1. What type of code elements the user is looking for
+                    2. Relevant keywords to search for
+                    3. File patterns that might contain the results
+
+                    Keep the response concise and focused on actionable search guidance.
+                    """.formatted(query);
+
             String aiResponse = chatModel.call(prompt);
             System.out.println("🧠 AI Analysis: " + aiResponse);
-            
+
             return createSearchResponse("Natural language search processed", aiResponse, query);
         } catch (Exception e) {
             System.err.println("Error with AI processing: " + e.getMessage());
-            return createSearchResponse("Natural language search (fallback mode)", 
-                "AI processing unavailable, using basic text search", query);
+            return createSearchResponse("Natural language search (fallback mode)",
+                    "AI processing unavailable, using basic text search", query);
         }
-    }    /**
+    }
+
+    /**
      * Perform semantic search using vector similarity
      */
     public Object semanticSearch(String query, int limit, double threshold) {
         System.out.println("🧠 Performing semantic search for: " + query);
         System.out.println("   Limit: " + limit + ", Threshold: " + threshold);
-          try {
+        try {
             // Generate embeddings for the query using Ollama
             System.out.println("🔄 Generating embeddings with CodeLlama...");
             embeddingModel.embed(query); // Generate embeddings (for future vector search)
-            
+
             // Search similar vectors in Qdrant
             System.out.println("🔍 Searching vector database...");
             // TODO: Implement actual vector search when Qdrant is available
             // var searchResults = vectorStore.similaritySearch(query, limit);
-            
-            return createSearchResponse("Semantic search completed", 
-                "Found semantically similar code patterns", query);
+
+            return createSearchResponse("Semantic search completed",
+                    "Found semantically similar code patterns", query);
         } catch (Exception e) {
             System.err.println("Error with semantic search: " + e.getMessage());
-            return createSearchResponse("Semantic search (fallback mode)", 
-                "Vector search unavailable, using text search", query);
+            return createSearchResponse("Semantic search (fallback mode)",
+                    "Vector search unavailable, using text search", query);
         }
     }
 
@@ -129,10 +136,10 @@ public class SearchService {
     public Object textSearch(String query, int limit) {
         System.out.println("📝 Performing text search for: " + query);
         System.out.println("   Limit: " + limit);
-        
+
         // TODO: Implement full-text search
         // This would search indexed text content
-        
+
         return createMockResponse("Text search results for: " + query);
     }
 
@@ -141,37 +148,39 @@ public class SearchService {
      */
     public Object advancedSearch(Object searchRequest) {
         System.out.println("⚙️ Performing advanced search with filters");
-        
+
         // TODO: Implement advanced search with filtering
         // This would apply multiple filters and search criteria
-        
+
         return createMockResponse("Advanced search results");
-    }    /**
+    }
+
+    /**
      * Index a codebase at the given path
      */
     public void indexCodebase(String path) {
         System.out.println("📚 Starting indexing process for: " + path);
-        
+
         try {
             System.out.println("   🔍 Scanning files...");
             Thread.sleep(500);
-            
+
             System.out.println("   📊 Analyzing code structure...");
             Thread.sleep(800);
-            
+
             System.out.println("   🧠 Generating embeddings with CodeLlama...");
             Thread.sleep(1200);
-            
+
             System.out.println("   � Storing in vector database...");
             Thread.sleep(600);
-            
+
             // TODO: Implement actual indexing
             // 1. Scan directory for source files
-            // 2. Parse and analyze code files  
+            // 2. Parse and analyze code files
             // 3. Generate embeddings using Ollama CodeLlama
             // 4. Store in Qdrant vector database
             // 5. Create text search index
-            
+
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
@@ -194,8 +203,8 @@ public class SearchService {
         return new Object() {
             @Override
             public String toString() {
-                return String.format("SearchResponse{status='%s', details='%s', query='%s', timestamp=%d}", 
-                    status, details, query, System.currentTimeMillis());
+                return String.format("SearchResponse{status='%s', details='%s', query='%s', timestamp=%d}",
+                        status, details, query, System.currentTimeMillis());
             }
         };
     }
@@ -204,8 +213,8 @@ public class SearchService {
         return new Object() {
             @Override
             public String toString() {
-                return "SearchResponse{message='" + message + "', timestamp=" + 
-                       System.currentTimeMillis() + "}";
+                return "SearchResponse{message='" + message + "', timestamp=" +
+                        System.currentTimeMillis() + "}";
             }
         };
     }

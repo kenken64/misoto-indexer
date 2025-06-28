@@ -3,8 +3,10 @@ package sg.edu.nus.iss.codebase.indexer.cli;
 import sg.edu.nus.iss.codebase.indexer.dto.SearchRequest;
 import sg.edu.nus.iss.codebase.indexer.service.HybridSearchService;
 import sg.edu.nus.iss.codebase.indexer.service.FileSearchService;
+import sg.edu.nus.iss.codebase.indexer.util.ScoreFormatter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
@@ -16,6 +18,7 @@ import java.util.Arrays;
 import java.util.stream.Collectors;
 
 @Component
+@ConditionalOnProperty(name = "app.cli.enabled", havingValue = "true", matchIfMissing = true)
 public class SearchCLI implements CommandLineRunner {
     @Autowired
     private HybridSearchService hybridSearchService;
@@ -41,14 +44,16 @@ public class SearchCLI implements CommandLineRunner {
                 System.out.println();
             }
         }
-    }    @Override
+    }
+
+    @Override
     public void run(String... args) {
         // Check if directory argument is provided
         if (args.length > 0) {
             String directory = args[0];
             System.out.println("[DIR] Setting indexing directory: " + directory);
             hybridSearchService.setIndexingDirectory(directory);
-            
+
             // NOTE: setIndexingDirectory already starts indexing automatically through
             // setIndexingDirectoryWithCollection, so we don't need to start it again
 
@@ -103,7 +108,9 @@ public class SearchCLI implements CommandLineRunner {
             System.out.println("[ERROR] Error retrieving indexing status: " + e.getMessage());
         }
         System.out.println();
-    }    private void mainLoop() {
+    }
+
+    private void mainLoop() {
         while (true) {
             System.out.println(); // Add spacing before menu
             displayMenu();
@@ -128,7 +135,9 @@ public class SearchCLI implements CommandLineRunner {
                 }
             }
         }
-    }private void displayMenu() {
+    }
+
+    private void displayMenu() {
         System.out.println("+--------------------- SEARCH MENU ---------------------+");
         System.out.println("| 1. [>] Search with Natural Language Prompt            |");
         System.out.println("| 2. [i] Indexing Status                                |");
@@ -196,8 +205,9 @@ public class SearchCLI implements CommandLineRunner {
             System.out.printf("[DONE] Files Indexed: %d%n", status.getIndexedFiles());
             System.out.printf("[PENDING] Pending Files: %d%n",
                     Math.max(0, status.getTotalFiles() - status.getIndexedFiles()));
-            System.out.printf("[TOTAL] Total Files: %d%n", status.getTotalFiles());            System.out.printf("[PROGRESS] Progress: %.1f%% - %s%n", status.getProgress(),
-                status.isInProgress() ? "In Progress" : (status.isComplete() ? "Complete" : "Ready"));
+            System.out.printf("[TOTAL] Total Files: %d%n", status.getTotalFiles());
+            System.out.printf("[PROGRESS] Progress: %.1f%% - %s%n", status.getProgress(),
+                    status.isInProgress() ? "In Progress" : (status.isComplete() ? "Complete" : "Ready"));
             System.out.println("\n[TIME] TIMING INFORMATION:");
             System.out.println("-".repeat(40));
 
@@ -224,7 +234,8 @@ public class SearchCLI implements CommandLineRunner {
                 }
             } else {
                 System.out.println("[READY] Indexing not started yet");
-            }            System.out.println("\n[THREADS] VIRTUAL THREAD METRICS:");
+            }
+            System.out.println("\n[THREADS] VIRTUAL THREAD METRICS:");
             System.out.println("-".repeat(40));
             try {
                 System.out.printf("[ACTIVE] Active Virtual Threads: %d%n", indexingService.getActiveVirtualThreads());
@@ -240,17 +251,21 @@ public class SearchCLI implements CommandLineRunner {
                 System.out.printf("[TASKS] Total Tasks Executed: %d%n", indexingService.getTotalTasksExecuted());
             } catch (Exception e) {
                 System.out.println("[ERROR] Could not retrieve total tasks: " + e.getMessage());
-            }            System.out.println("\n[FILES] FILE TYPE BREAKDOWN:");
+            }
+            System.out.println("\n[FILES] FILE TYPE BREAKDOWN:");
             System.out.println("-".repeat(40));
             try {
                 var fileTypeStats = indexingService.getFileTypeStatistics();
                 if (fileTypeStats == null || fileTypeStats.isEmpty()) {
                     System.out.println("[INFO] No files indexed yet");
-                } else {                    fileTypeStats.forEach(
+                } else {
+                    fileTypeStats.forEach(
                             (type, count) -> System.out.printf("[FILES] %s: %d files%n", type, count));
-                }            } catch (Exception e) {
+                }
+            } catch (Exception e) {
                 System.out.println("[ERROR] Could not retrieve file type statistics: " + e.getMessage());
-            }System.out.println("\n[SKIP] SKIPPED FILE EXTENSIONS:");
+            }
+            System.out.println("\n[SKIP] SKIPPED FILE EXTENSIONS:");
             System.out.println("-".repeat(40));
             try {
                 var skippedExtensions = indexingService.getSkippedFileExtensions();
@@ -262,12 +277,15 @@ public class SearchCLI implements CommandLineRunner {
                             .forEach(entry -> System.out.printf("[SKIP] %s: %d files (not supported)%n",
                                     entry.getKey().isEmpty() ? "[no extension]" : entry.getKey(),
                                     entry.getValue()));
-                }            } catch (Exception e) {
+                }
+            } catch (Exception e) {
                 System.out.println("[ERROR] Could not retrieve skipped extensions: " + e.getMessage());
-            }System.out.println("\n[ERRORS] ERROR SUMMARY:");
+            }
+            System.out.println("\n[ERRORS] ERROR SUMMARY:");
             System.out.println("-".repeat(40));
             try {
-                System.out.printf("[FAIL] Failed Files: %d%n", indexingService.getFailedFileCount());            } catch (Exception e) {
+                System.out.printf("[FAIL] Failed Files: %d%n", indexingService.getFailedFileCount());
+            } catch (Exception e) {
                 System.out.println("[ERROR] Could not retrieve failed file count: " + e.getMessage());
             }
             try {
@@ -278,7 +296,8 @@ public class SearchCLI implements CommandLineRunner {
 
             if (status.isInProgress()) {
                 System.out.println("\n[NOTE] Indexing is still in progress. Statistics will continue updating.");
-            }        } catch (Exception e) {
+            }
+        } catch (Exception e) {
             System.err.println("[ERROR] Error retrieving indexing status: " + e.getMessage());
         }
 
@@ -332,19 +351,20 @@ public class SearchCLI implements CommandLineRunner {
         } else {
             System.out.println("🎯 Used vector-based semantic search");
         }
-        System.out.printf("📊 Total results: %d%n%n", result.getTotalResults());        // Display vector search results
+        System.out.printf("📊 Total results: %d%n%n", result.getTotalResults()); // Display vector search results
         if (!result.getVectorResults().isEmpty()) {
             System.out.println("🎯 VECTOR SEARCH RESULTS:");
             System.out.println("-".repeat(40));
             for (int i = 0; i < result.getVectorResults().size(); i++) {
                 HybridSearchService.SearchResult vResult = result.getVectorResults().get(i);
-                System.out.printf("%d. 📄 %s%n", i + 1, vResult.getFileName());
+                System.out.printf("%d. 📄 %s (Score: %s)%n", 
+                        i + 1, vResult.getFileName(), ScoreFormatter.formatScoreCompact(vResult.getRelevanceScore()));
                 System.out.printf("   📁 %s%n", vResult.getFilePath());
                 System.out.printf("   📦 Collection: %s%n", vResult.getCollectionName());
                 System.out.printf("   📅 Modified: %s%n", vResult.getLastModifiedDate());
                 System.out.printf("   🔍 Indexed: %s%n", vResult.getIndexedAt());
                 System.out.printf("   📏 Size: %s bytes%n", vResult.getFileSize());
-                
+
                 // Display line matches if available
                 if (!vResult.getLineMatches().isEmpty()) {
                     System.out.println("   🎯 Line Matches:");
@@ -356,15 +376,16 @@ public class SearchCLI implements CommandLineRunner {
                 }
                 System.out.println();
             }
-        }        // Display file search results
+        } // Display file search results
         if (!result.getFileResults().isEmpty()) {
             System.out.println("📂 FILE SEARCH RESULTS:");
             System.out.println("-".repeat(40));
             for (int i = 0; i < Math.min(5, result.getFileResults().size()); i++) {
                 FileSearchService.SearchResult fResult = result.getFileResults().get(i);
-                System.out.printf("%d. 📄 %s (Score: %.1f)%n",
-                        i + 1, fResult.getFileName(), fResult.getRelevanceScore());                System.out.printf("   📁 %s%n", fResult.getFilePath());
-                
+                System.out.printf("%d. 📄 %s (Score: %s)%n",
+                        i + 1, fResult.getFileName(), ScoreFormatter.formatScoreCompact(fResult.getRelevanceScore()));
+                System.out.printf("   📁 %s%n", fResult.getFilePath());
+
                 // Display line matches if available
                 if (!fResult.getLineMatches().isEmpty()) {
                     System.out.println("   🎯 Line Matches:");
@@ -389,6 +410,9 @@ public class SearchCLI implements CommandLineRunner {
         if (result.getTotalResults() == 0) {
             System.out.println("❌ No results found. Try different search terms or check if indexing is complete.");
         }
+
+        // Offer detailed score analysis
+        offerDetailedScoreAnalysis(result);
 
         System.out.println("=".repeat(80));
         System.out.println();
@@ -770,11 +794,12 @@ public class SearchCLI implements CommandLineRunner {
                 HybridSearchService.SearchResult searchResult = (HybridSearchService.SearchResult) allResults.get(i);
                 System.out.printf("%d. 📄 %s%n", i + 1, searchResult.getFileName());
                 System.out.printf("   📁 %s%n", searchResult.getFilePath());
-                System.out.printf("   📝 %s%n%n", truncateContent(searchResult.getContent(), 150));            } else if (allResults.get(i) instanceof FileSearchService.SearchResult) {
+                System.out.printf("   📝 %s%n%n", truncateContent(searchResult.getContent(), 150));
+            } else if (allResults.get(i) instanceof FileSearchService.SearchResult) {
                 FileSearchService.SearchResult fileResult = (FileSearchService.SearchResult) allResults.get(i);
                 System.out.printf("%d. 📄 %s%n", i + 1, fileResult.getFileName());
                 System.out.printf("   📁 %s%n", fileResult.getFilePath());
-                
+
                 // Display line matches if available
                 if (!fileResult.getLineMatches().isEmpty()) {
                     System.out.println("   🎯 Line Matches:");
@@ -827,11 +852,8 @@ public class SearchCLI implements CommandLineRunner {
                 System.out.println("-".repeat(40));
                 for (int i = 0; i < result.getVectorResults().size(); i++) {
                     HybridSearchService.SearchResult vResult = result.getVectorResults().get(i);
-                    System.out.printf("%d. 📄 %s", i + 1, vResult.getFileName());
-                    if (vResult.getScore() > 0) {
-                        System.out.printf(" (%.2f)", vResult.getScore());
-                    }
-                    System.out.println();
+                    System.out.printf("%d. 📄 %s (Score: %s)%n", 
+                            i + 1, vResult.getFileName(), ScoreFormatter.formatScoreCompact(vResult.getRelevanceScore()));
                     System.out.printf("   📁 %s%n", vResult.getFilePath());
                     System.out.printf("   📝 %s%n%n", truncateContent(vResult.getContent(), 180));
                 }
@@ -846,8 +868,8 @@ public class SearchCLI implements CommandLineRunner {
                 System.out.println("-".repeat(40));
                 for (int i = 0; i < Math.min(result.getFileResults().size(), 10); i++) {
                     FileSearchService.SearchResult fResult = result.getFileResults().get(i);
-                    System.out.printf("%d. 📄 %s (Score: %.1f)%n",
-                            i + 1, fResult.getFileName(), fResult.getRelevanceScore());
+                    System.out.printf("%d. 📄 %s (Score: %s)%n",
+                            i + 1, fResult.getFileName(), ScoreFormatter.formatScoreCompact(fResult.getRelevanceScore()));
                     System.out.printf("   📁 %s%n", fResult.getFilePath());
                     System.out.printf("   📝 %s%n%n", truncateContent(fResult.getContent(), 180));
                 }
@@ -862,6 +884,9 @@ public class SearchCLI implements CommandLineRunner {
             System.out.println("   • Removing file type filters");
             System.out.println("   • Using a different search type");
         }
+
+        // Offer detailed score analysis
+        offerDetailedScoreAnalysis(result);
 
         System.out.println("=".repeat(80));
         System.out.println();
@@ -914,6 +939,55 @@ public class SearchCLI implements CommandLineRunner {
             return hybridSearchService.getCurrentIndexingDirectory();
         } catch (Exception e) {
             return "Unknown";
+        }
+    }
+
+    /**
+     * Display detailed score analysis for search results
+     */
+    private void displayDetailedScores(HybridSearchService.HybridSearchResult result) {
+        System.out.println("\n📊 DETAILED SCORE ANALYSIS:");
+        System.out.println("=".repeat(50));
+        
+        if (!result.getVectorResults().isEmpty()) {
+            System.out.println("🎯 Vector Search Scores:");
+            for (int i = 0; i < Math.min(5, result.getVectorResults().size()); i++) {
+                HybridSearchService.SearchResult vResult = result.getVectorResults().get(i);
+                System.out.printf("  %d. %s%n", i + 1, vResult.getFileName());
+                System.out.printf("     %s%n", ScoreFormatter.formatScoreDetailed(vResult.getRelevanceScore(), "Vector"));
+                System.out.printf("     %s %s%n", 
+                        ScoreFormatter.createScoreBar(vResult.getRelevanceScore(), 20),
+                        ScoreFormatter.formatScoreAsPercentage(vResult.getRelevanceScore()));
+                System.out.println();
+            }
+        }
+        
+        if (!result.getFileResults().isEmpty()) {
+            System.out.println("📝 File Search Scores:");
+            for (int i = 0; i < Math.min(5, result.getFileResults().size()); i++) {
+                FileSearchService.SearchResult fResult = result.getFileResults().get(i);
+                System.out.printf("  %d. %s%n", i + 1, fResult.getFileName());
+                System.out.printf("     %s%n", ScoreFormatter.formatScoreDetailed(fResult.getRelevanceScore(), "Text"));
+                System.out.printf("     %s %s%n", 
+                        ScoreFormatter.createScoreBar(fResult.getRelevanceScore(), 20),
+                        ScoreFormatter.formatScoreAsPercentage(fResult.getRelevanceScore()));
+                System.out.println();
+            }
+        }
+        
+        System.out.println("=".repeat(50));
+    }
+
+    /**
+     * Ask user if they want to see detailed score analysis
+     */
+    private void offerDetailedScoreAnalysis(HybridSearchService.HybridSearchResult result) {
+        if (result.getTotalResults() > 0) {
+            System.out.print("\n🔍 Would you like to see detailed score analysis? (y/n): ");
+            String input = scanner.nextLine().trim().toLowerCase();
+            if (input.equals("y") || input.equals("yes")) {
+                displayDetailedScores(result);
+            }
         }
     }
 }

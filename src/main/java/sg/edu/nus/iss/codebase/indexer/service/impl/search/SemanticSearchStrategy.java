@@ -39,8 +39,7 @@ public class SemanticSearchStrategy implements SearchStrategy {
                             doc.getText(),
                             getLineNumber(doc),
                             1.0, // Relevance score would come from vector similarity
-                            createSnippet(doc.getText())
-                    ))
+                            createSnippet(doc.getText())))
                     .collect(Collectors.toList());
 
         } catch (Exception e) {

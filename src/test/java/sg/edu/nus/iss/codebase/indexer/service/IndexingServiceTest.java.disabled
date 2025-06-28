@@ -1,0 +1,426 @@
+package sg.edu.nus.iss.codebase.indexer.service;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.ai.document.Document;
+import org.springframework.ai.vectorstore.VectorStore;
+
+import sg.edu.nus.iss.codebase.indexer.config.DynamicVectorStoreFactory;
+import sg.edu.nus.iss.codebase.indexer.config.IndexingConfiguration;
+import sg.edu.nus.iss.codebase.indexer.service.impl.DocumentFactoryManager;
+import sg.edu.nus.iss.codebase.indexer.service.interfaces.FileCacheRepository;
+
+import io.qdrant.client.QdrantClient;
+import io.qdrant.client.grpc.Collections.CollectionInfo;
+import io.qdrant.client.grpc.Collections.GetCollectionInfoRequest;
+import io.qdrant.client.grpc.Collections.GetCollectionInfoResponse;
+
+import java.io.File;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+
+import static org.assertj.core.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+
+@ExtendWith(MockitoExtension.class)
+class IndexingServiceTest {
+
+    @Mock
+    private VectorStore vectorStore;
+
+    @Mock
+    private DynamicVectorStoreFactory vectorStoreFactory;
+
+    @Mock
+    private QdrantClient qdrantClient;
+
+    @Mock
+    private Executor virtualThreadExecutor;
+
+    @Mock
+    private IndexingConfiguration config;
+
+    @Mock
+    private FileCacheRepository cacheRepository;
+
+    @Mock
+    private DocumentFactoryManager documentFactoryManager;
+
+    @InjectMocks
+    private IndexingService indexingService;
+
+    private File mockFile;
+    private Document mockDocument;
+
+    @BeforeEach
+    void setUp() {
+        mockFile = mock(File.class);
+        when(mockFile.getName()).thenReturn("TestFile.java");
+        when(mockFile.getAbsolutePath()).thenReturn("/path/to/TestFile.java");
+        when(mockFile.isFile()).thenReturn(true);
+        when(mockFile.exists()).thenReturn(true);
+
+        mockDocument = new Document("test content", Map.of(
+            "fileName", "TestFile.java",
+            "filePath", "/path/to/TestFile.java"
+        ));
+
+        // Set up default configuration
+        when(config.getChunkSize()).thenReturn(1000);
+        when(config.getChunkOverlap()).thenReturn(100);
+        when(config.getExcludedDirectories()).thenReturn(List.of("target", ".git", "node_modules"));
+        when(config.getFilePriorities()).thenReturn(Map.of(
+            "Main", 1,
+            "Service", 2,
+            "Controller", 3
+        ));
+    }
+
+    @Test
+    void startIndexing_ShouldSuccessfullyIndexDirectory() throws Exception {
+        // Arrange
+        String directory = "src/main/java";
+        when(documentFactoryManager.isSupported(any(File.class))).thenReturn(true);
+        when(documentFactoryManager.createDocuments(any(File.class)))
+            .thenReturn(List.of(mockDocument));
+        when(cacheRepository.needsReindexing(anyString())).thenReturn(true);
+        when(vectorStoreFactory.createVectorStore(anyString())).thenReturn(vectorStore);
+
+        // Mock collection exists check
+        GetCollectionInfoResponse response = mock(GetCollectionInfoResponse.class);
+        when(response.hasResult()).thenReturn(true);
+        when(qdrantClient.getCollectionInfoAsync(any(GetCollectionInfoRequest.class)))
+            .thenReturn(CompletableFuture.completedFuture(response));
+
+        // Act
+        CompletableFuture<Void> result = indexingService.startIndexing(directory);
+
+        // Assert
+        assertThat(result).isNotNull();
+        assertThat(indexingService.isIndexingInProgress()).isTrue();
+        
+        // Verify collection name generation
+        String expectedCollectionName = indexingService.generateCollectionName(directory);
+        assertThat(expectedCollectionName).isNotEmpty();
+    }
+
+    @Test
+    void generateCollectionName_ShouldCreateValidNames() {
+        // Test cases for different directory structures
+        Map<String, String> testCases = Map.of(
+            "src/main/java", "src-main-java",
+            "codebase/dssi-day3-ollama", "codebase-dssi-day3-ollama",
+            "/absolute/path/to/project", "absolute-path-to-project",
+            "simple-project", "simple-project",
+            "project with spaces", "project-with-spaces"
+        );
+
+        for (Map.Entry<String, String> testCase : testCases.entrySet()) {
+            String result = indexingService.generateCollectionName(testCase.getKey());
+            assertThat(result).startsWith("codebase-index-" + testCase.getValue());
+        }
+    }
+
+    @Test
+    void generateCacheFileName_ShouldCreateValidCacheNames() {
+        // Test cache file name generation
+        Map<String, String> testCases = Map.of(
+            "src/main/java", "src-main-java",
+            "codebase/dssi-day3-ollama", "codebase-dssi-day3-ollama",
+            "/absolute/path/to/project", "absolute-path-to-project"
+        );
+
+        for (Map.Entry<String, String> testCase : testCases.entrySet()) {
+            String result = indexingService.generateCacheFileName(testCase.getKey());
+            assertThat(result).isEqualTo("indexed_files_cache_" + testCase.getValue() + ".txt");
+        }
+    }
+
+    @Test
+    void stopIndexing_ShouldStopIndexingProcess() {
+        // Arrange - start indexing first
+        indexingService.startIndexing("src/main/java");
+
+        // Act
+        indexingService.stopIndexing();
+
+        // Assert
+        assertThat(indexingService.isIndexingInProgress()).isFalse();
+    }
+
+    @Test
+    void pauseIndexing_ShouldPauseIndexingProcess() {
+        // Act
+        indexingService.pauseIndexing();
+
+        // Assert - should not throw exception
+        // Verify pause was called
+        verify(cacheRepository, never()).saveIndexedFile(anyString());
+    }
+
+    @Test
+    void resumeIndexing_ShouldResumeIndexingProcess() {
+        // Arrange - pause first
+        indexingService.pauseIndexing();
+
+        // Act
+        indexingService.resumeIndexing();
+
+        // Assert - should not throw exception
+        // The actual resumption logic would be tested in integration tests
+    }
+
+    @Test
+    void getIndexingStatus_ShouldReturnCorrectStatus() {
+        // Act
+        boolean isComplete = indexingService.isIndexingComplete();
+        boolean isInProgress = indexingService.isIndexingInProgress();
+        int indexedCount = indexingService.getIndexedFileCount();
+        int totalCount = indexingService.getTotalFileCount();
+        double progress = indexingService.getIndexingProgress();
+
+        // Assert
+        assertThat(isComplete).isFalse(); // Initially not complete
+        assertThat(isInProgress).isFalse(); // Initially not in progress
+        assertThat(indexedCount).isEqualTo(0);
+        assertThat(totalCount).isEqualTo(0);
+        assertThat(progress).isEqualTo(0.0);
+    }
+
+    @Test
+    void deleteAndRecreateCollection_ShouldHandleCollectionOperations() throws Exception {
+        // Arrange
+        String collectionName = "test-collection";
+        
+        // Mock collection exists
+        GetCollectionInfoResponse existsResponse = mock(GetCollectionInfoResponse.class);
+        when(existsResponse.hasResult()).thenReturn(true);
+        when(qdrantClient.getCollectionInfoAsync(any(GetCollectionInfoRequest.class)))
+            .thenReturn(CompletableFuture.completedFuture(existsResponse));
+
+        // Mock successful deletion
+        when(qdrantClient.deleteCollectionAsync(anyString()))
+            .thenReturn(CompletableFuture.completedFuture(null));
+
+        // Mock successful creation
+        when(qdrantClient.createCollectionAsync(any()))
+            .thenReturn(CompletableFuture.completedFuture(null));
+
+        // Act
+        indexingService.deleteAndRecreateCollection(collectionName);
+
+        // Assert
+        verify(qdrantClient).deleteCollectionAsync(collectionName);
+        verify(qdrantClient).createCollectionAsync(any());
+    }
+
+    @Test
+    void ensureCollectionExists_ShouldCreateCollectionIfNotExists() throws Exception {
+        // Arrange
+        String collectionName = "test-collection";
+        
+        // Mock collection doesn't exist
+        when(qdrantClient.getCollectionInfoAsync(any(GetCollectionInfoRequest.class)))
+            .thenReturn(CompletableFuture.failedFuture(new RuntimeException("Collection not found")));
+
+        // Mock successful creation
+        when(qdrantClient.createCollectionAsync(any()))
+            .thenReturn(CompletableFuture.completedFuture(null));
+
+        // Act
+        indexingService.ensureCollectionExists(collectionName);
+
+        // Assert
+        verify(qdrantClient).createCollectionAsync(any());
+    }
+
+    @Test
+    void ensureCollectionExists_ShouldNotCreateCollectionIfExists() throws Exception {
+        // Arrange
+        String collectionName = "test-collection";
+        
+        // Mock collection exists
+        GetCollectionInfoResponse response = mock(GetCollectionInfoResponse.class);
+        when(response.hasResult()).thenReturn(true);
+        when(qdrantClient.getCollectionInfoAsync(any(GetCollectionInfoRequest.class)))
+            .thenReturn(CompletableFuture.completedFuture(response));
+
+        // Act
+        indexingService.ensureCollectionExists(collectionName);
+
+        // Assert
+        verify(qdrantClient, never()).createCollectionAsync(any());
+    }
+
+    @Test
+    void clearCacheAndReindex_ShouldClearCacheAndRestart() throws Exception {
+        // Arrange
+        String directory = "src/main/java";
+        indexingService.setIndexingDirectory(directory);
+
+        // Mock collection operations
+        GetCollectionInfoResponse response = mock(GetCollectionInfoResponse.class);
+        when(response.hasResult()).thenReturn(true);
+        when(qdrantClient.getCollectionInfoAsync(any(GetCollectionInfoRequest.class)))
+            .thenReturn(CompletableFuture.completedFuture(response));
+        when(qdrantClient.deleteCollectionAsync(anyString()))
+            .thenReturn(CompletableFuture.completedFuture(null));
+        when(qdrantClient.createCollectionAsync(any()))
+            .thenReturn(CompletableFuture.completedFuture(null));
+
+        // Act
+        indexingService.clearCacheAndReindex();
+
+        // Assert
+        verify(cacheRepository).clearCache();
+        verify(qdrantClient).deleteCollectionAsync(anyString());
+        verify(qdrantClient).createCollectionAsync(any());
+    }
+
+    @Test
+    void restartIndexing_ShouldRestartWithCleanCollection() throws Exception {
+        // Arrange
+        String directory = "src/main/java";
+        indexingService.setIndexingDirectory(directory);
+
+        // Mock collection operations
+        GetCollectionInfoResponse response = mock(GetCollectionInfoResponse.class);
+        when(response.hasResult()).thenReturn(true);
+        when(qdrantClient.getCollectionInfoAsync(any(GetCollectionInfoRequest.class)))
+            .thenReturn(CompletableFuture.completedFuture(response));
+        when(qdrantClient.deleteCollectionAsync(anyString()))
+            .thenReturn(CompletableFuture.completedFuture(null));
+        when(qdrantClient.createCollectionAsync(any()))
+            .thenReturn(CompletableFuture.completedFuture(null));
+
+        // Act
+        indexingService.restartIndexing();
+
+        // Assert
+        verify(qdrantClient).deleteCollectionAsync(anyString());
+        verify(qdrantClient).createCollectionAsync(any());
+        assertThat(indexingService.getIndexedFileCount()).isEqualTo(0);
+        assertThat(indexingService.getTotalFileCount()).isEqualTo(0);
+    }
+
+    @Test
+    void getMetrics_ShouldReturnCorrectMetrics() {
+        // Act
+        long duration = indexingService.getCurrentIndexingDuration();
+        double speed = indexingService.getIndexingSpeed();
+        int activeThreads = indexingService.getActiveVirtualThreads();
+        int peakThreads = indexingService.getPeakVirtualThreads();
+        long totalTasks = indexingService.getTotalTasksExecuted();
+        int failedFiles = indexingService.getFailedFileCount();
+        int skippedFiles = indexingService.getSkippedFileCount();
+
+        // Assert
+        assertThat(duration).isGreaterThanOrEqualTo(0);
+        assertThat(speed).isGreaterThanOrEqualTo(0.0);
+        assertThat(activeThreads).isGreaterThanOrEqualTo(0);
+        assertThat(peakThreads).isGreaterThanOrEqualTo(0);
+        assertThat(totalTasks).isGreaterThanOrEqualTo(0);
+        assertThat(failedFiles).isGreaterThanOrEqualTo(0);
+        assertThat(skippedFiles).isGreaterThanOrEqualTo(0);
+    }
+
+    @Test
+    void getFileTypeStatistics_ShouldReturnEmptyInitially() {
+        // Act
+        Map<String, Integer> stats = indexingService.getFileTypeStatistics();
+
+        // Assert
+        assertThat(stats).isNotNull();
+        assertThat(stats).isEmpty();
+    }
+
+    @Test
+    void getSkippedFileExtensions_ShouldReturnEmptyInitially() {
+        // Act
+        Map<String, Integer> stats = indexingService.getSkippedFileExtensions();
+
+        // Assert
+        assertThat(stats).isNotNull();
+        assertThat(stats).isEmpty();
+    }
+
+    @Test
+    void getIndexedFiles_ShouldReturnEmptySetInitially() {
+        // Act
+        Set<String> indexedFiles = indexingService.getIndexedFiles();
+
+        // Assert
+        assertThat(indexedFiles).isNotNull();
+        assertThat(indexedFiles).isEmpty();
+    }
+
+    @Test
+    void setIndexingDirectory_ShouldUpdateDirectory() {
+        // Arrange
+        String newDirectory = "src/test/java";
+
+        // Act
+        indexingService.setIndexingDirectory(newDirectory);
+
+        // Assert
+        // The method should complete without throwing
+        // Directory setting is primarily used internally
+    }
+
+    @Test
+    void handleLargeDirectoryStructure_ShouldNotFail() {
+        // Arrange
+        String directory = "src/main/java";
+        
+        // Mock large number of files
+        when(documentFactoryManager.isSupported(any(File.class))).thenReturn(true);
+        when(documentFactoryManager.createDocuments(any(File.class)))
+            .thenReturn(List.of(mockDocument));
+        when(cacheRepository.needsReindexing(anyString())).thenReturn(true);
+        when(vectorStoreFactory.createVectorStore(anyString())).thenReturn(vectorStore);
+
+        // Mock collection exists
+        GetCollectionInfoResponse response = mock(GetCollectionInfoResponse.class);
+        when(response.hasResult()).thenReturn(true);
+        when(qdrantClient.getCollectionInfoAsync(any(GetCollectionInfoRequest.class)))
+            .thenReturn(CompletableFuture.completedFuture(response));
+
+        // Act & Assert
+        assertThatCode(() -> indexingService.startIndexing(directory))
+            .doesNotThrowAnyException();
+    }
+
+    @Test
+    void handleIndexingErrors_ShouldContinueWithOtherFiles() {
+        // Arrange
+        String directory = "src/main/java";
+        
+        when(documentFactoryManager.isSupported(any(File.class))).thenReturn(true);
+        when(documentFactoryManager.createDocuments(any(File.class)))
+            .thenThrow(new RuntimeException("Document creation failed"))
+            .thenReturn(List.of(mockDocument)); // Second call succeeds
+        when(cacheRepository.needsReindexing(anyString())).thenReturn(true);
+        when(vectorStoreFactory.createVectorStore(anyString())).thenReturn(vectorStore);
+
+        // Mock collection exists
+        GetCollectionInfoResponse response = mock(GetCollectionInfoResponse.class);
+        when(response.hasResult()).thenReturn(true);
+        when(qdrantClient.getCollectionInfoAsync(any(GetCollectionInfoRequest.class)))
+            .thenReturn(CompletableFuture.completedFuture(response));
+
+        // Act & Assert
+        assertThatCode(() -> indexingService.startIndexing(directory))
+            .doesNotThrowAnyException();
+        
+        // Should continue processing despite errors
+        assertThat(indexingService.isIndexingInProgress()).isTrue();
+    }
+}

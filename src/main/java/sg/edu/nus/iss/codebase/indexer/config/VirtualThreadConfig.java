@@ -11,12 +11,13 @@ import java.util.concurrent.Executors;
 
 @Configuration
 @EnableAsync
-public class VirtualThreadConfig implements AsyncConfigurer {    /**
+public class VirtualThreadConfig implements AsyncConfigurer {
+    /**
      * Configure Virtual Thread Executor for Indexing Operations
      * 
      * Virtual threads are perfect for I/O-intensive operations like:
      * - File reading
-     * - Network calls to Ollama (embedding generation)  
+     * - Network calls to Ollama (embedding generation)
      * - Network calls to Qdrant (vector storage)
      * 
      * Benefits:
@@ -33,14 +34,13 @@ public class VirtualThreadConfig implements AsyncConfigurer {    /**
      * High-performance executor for background indexing
      * Uses virtual threads for maximum concurrency
      */
-    @Bean("indexingExecutor")  
+    @Bean("indexingExecutor")
     public Executor indexingExecutor() {
         // Create virtual thread executor with custom naming
         return Executors.newThreadPerTaskExecutor(
-            Thread.ofVirtual()
-                .name("indexing-worker-", 0)
-                .factory()
-        );
+                Thread.ofVirtual()
+                        .name("indexing-worker-", 0)
+                        .factory());
     }
 
     /**

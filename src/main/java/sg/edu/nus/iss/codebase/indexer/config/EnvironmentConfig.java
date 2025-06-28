@@ -11,7 +11,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Environment post processor to load .env file before Spring Boot application properties
+ * Environment post processor to load .env file before Spring Boot application
+ * properties
  */
 @Component
 public class EnvironmentConfig implements EnvironmentPostProcessor {
@@ -21,7 +22,7 @@ public class EnvironmentConfig implements EnvironmentPostProcessor {
         try {
             // Load .env file from project root
             Dotenv dotenv = Dotenv.configure()
-                    .directory(".")  // Look in current directory
+                    .directory(".") // Look in current directory
                     .ignoreIfMalformed()
                     .ignoreIfMissing()
                     .load();
@@ -35,14 +36,14 @@ public class EnvironmentConfig implements EnvironmentPostProcessor {
             // Add the properties to Spring's environment with high precedence
             if (!envProperties.isEmpty()) {
                 environment.getPropertySources().addFirst(
-                    new MapPropertySource("dotenv", envProperties)
-                );
+                        new MapPropertySource("dotenv", envProperties));
                 System.out.println("✅ Environment variables loaded from .env file");
             }
-            
+
         } catch (Exception e) {
             System.err.println("⚠️  Could not load .env file: " + e.getMessage());
-            System.err.println("   Make sure .env file exists in project root with QDRANT_HOST, QDRANT_PORT, and QDRANT_API_KEY");
+            System.err.println(
+                    "   Make sure .env file exists in project root with QDRANT_HOST, QDRANT_PORT, and QDRANT_API_KEY");
         }
     }
 }

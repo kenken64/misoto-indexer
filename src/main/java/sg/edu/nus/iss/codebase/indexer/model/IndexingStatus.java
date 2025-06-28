@@ -7,7 +7,7 @@ import java.util.Map;
  * Implements Data Transfer Object pattern
  */
 public class IndexingStatus {
-    
+
     private final int totalFiles;
     private final int indexedFiles;
     private final int failedFiles;
@@ -43,21 +43,65 @@ public class IndexingStatus {
     }
 
     // Getters
-    public int getTotalFiles() { return totalFiles; }
-    public int getIndexedFiles() { return indexedFiles; }
-    public int getFailedFiles() { return failedFiles; }
-    public int getSkippedFiles() { return skippedFiles; }
-    public boolean isIndexingInProgress() { return indexingInProgress; }
-    public boolean isIndexingComplete() { return indexingComplete; }
-    public long getStartTime() { return startTime; }
-    public long getCurrentDuration() { return currentDuration; }
-    public double getIndexingSpeed() { return indexingSpeed; }
-    public int getActiveThreads() { return activeThreads; }
-    public int getPeakThreads() { return peakThreads; }
-    public long getTotalTasksExecuted() { return totalTasksExecuted; }
-    public Map<String, Integer> getFileTypeStatistics() { return fileTypeStatistics; }
-    public Map<String, Integer> getSkippedFileExtensions() { return skippedFileExtensions; }
-    public String getCurrentDirectory() { return currentDirectory; }
+    public int getTotalFiles() {
+        return totalFiles;
+    }
+
+    public int getIndexedFiles() {
+        return indexedFiles;
+    }
+
+    public int getFailedFiles() {
+        return failedFiles;
+    }
+
+    public int getSkippedFiles() {
+        return skippedFiles;
+    }
+
+    public boolean isIndexingInProgress() {
+        return indexingInProgress;
+    }
+
+    public boolean isIndexingComplete() {
+        return indexingComplete;
+    }
+
+    public long getStartTime() {
+        return startTime;
+    }
+
+    public long getCurrentDuration() {
+        return currentDuration;
+    }
+
+    public double getIndexingSpeed() {
+        return indexingSpeed;
+    }
+
+    public int getActiveThreads() {
+        return activeThreads;
+    }
+
+    public int getPeakThreads() {
+        return peakThreads;
+    }
+
+    public long getTotalTasksExecuted() {
+        return totalTasksExecuted;
+    }
+
+    public Map<String, Integer> getFileTypeStatistics() {
+        return fileTypeStatistics;
+    }
+
+    public Map<String, Integer> getSkippedFileExtensions() {
+        return skippedFileExtensions;
+    }
+
+    public String getCurrentDirectory() {
+        return currentDirectory;
+    }
 
     /**
      * Calculate indexing progress percentage
@@ -70,7 +114,8 @@ public class IndexingStatus {
      * Estimate remaining time in milliseconds
      */
     public long getEstimatedRemainingTime() {
-        if (indexedFiles == 0 || indexingSpeed == 0) return 0;
+        if (indexedFiles == 0 || indexingSpeed == 0)
+            return 0;
         int remainingFiles = totalFiles - indexedFiles;
         return (long) (remainingFiles / indexingSpeed * 1000);
     }

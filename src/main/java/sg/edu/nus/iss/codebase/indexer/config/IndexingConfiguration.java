@@ -18,51 +18,49 @@ public class IndexingConfiguration {
      * Supported file extensions for indexing
      */
     private Set<String> supportedExtensions = Set.of(
-        // Java ecosystem
-        ".java", ".xml", ".properties", ".yml", ".yaml", ".json", ".md", ".txt",
-        
-        // Template and documentation
-        ".st", ".adoc",
-        
-        // JVM languages
-        ".kt", ".scala",
-        
-        // Database
-        ".sql", ".cql",
-          // Web technologies
-        ".html", ".css", ".js", ".ts", ".jsp", ".asp", ".aspx", ".php",
-          // System and configuration
-        ".conf", ".cmd", ".sh", ".ps1",
-        
-        // Programming languages
-        ".py", ".c", ".cpp", ".cs", ".rb", ".vb", ".go", ".swift", 
-        ".lua", ".pl", ".r",
-        
-        // Document formats
-        ".pdf"
-    );
+            // Java ecosystem
+            ".java", ".xml", ".properties", ".yml", ".yaml", ".json", ".md", ".txt",
+
+            // Template and documentation
+            ".st", ".adoc",
+
+            // JVM languages
+            ".kt", ".scala",
+
+            // Database
+            ".sql", ".cql",
+            // Web technologies
+            ".html", ".css", ".js", ".ts", ".jsp", ".asp", ".aspx", ".php",
+            // System and configuration
+            ".conf", ".cmd", ".sh", ".ps1",
+
+            // Programming languages
+            ".py", ".c", ".cpp", ".cs", ".rb", ".vb", ".go", ".swift",
+            ".lua", ".pl", ".r",
+
+            // Document formats
+            ".pdf");
 
     /**
      * File priority mappings for priority-based indexing
      */
     private Map<String, Integer> filePriorities = Map.of(
-        "Controller.java", 1,    // REST controllers (highest priority)
-        "Service.java", 2,       // Business logic services
-        "Repository.java", 3,    // Data access
-        "Config.java", 4,        // Configuration classes
-        "Application.java", 5,   // Main application classes
-        ".java", 6,              // Other Java files
-        ".xml", 7,               // Configuration files
-        ".properties", 8,        // Properties files
-        ".md", 9                 // Documentation
+            "Application.java", 1, // Main application classes (highest priority)
+            "Test.java", 2, // Test files
+            "Service.java", 3, // Business logic services  
+            "Repository.java", 4, // Data access
+            "Controller.java", 5, // REST controllers
+            "Config.java", 6, // Configuration classes
+            ".xml", 7, // Configuration files
+            ".properties", 8, // Properties files
+            ".md", 9 // Documentation
     );
 
     /**
      * Directories to exclude from indexing
      */
     private Set<String> excludedDirectories = Set.of(
-        "target", ".git", "node_modules", ".idea", ".vscode", "build", "dist"
-    );
+            "target", ".git", "node_modules", ".idea", ".vscode", "build", "dist");
 
     /**
      * Processing configuration
@@ -211,11 +209,11 @@ public class IndexingConfiguration {
             try {
                 // Normalize path separators
                 String normalizedDir = directory.replace('\\', '/');
-                
+
                 // Extract the last directory name
                 String[] parts = normalizedDir.split("/");
                 String lastDir = parts[parts.length - 1];
-                
+
                 // If it's within a codebase directory, use the subdirectory name
                 if (directory.contains("codebase") && parts.length >= 2) {
                     // Find the index of "codebase" in the path
@@ -227,15 +225,15 @@ public class IndexingConfiguration {
                         }
                     }
                 }
-                
+
                 // Clean up the directory name (remove special characters, lowercase)
                 String cleanName = lastDir.replaceAll("[^a-zA-Z0-9\\-_]", "_")
-                                     .replaceAll("_+", "_")
-                                     .toLowerCase()
-                                     .replaceAll("^_|_$", ""); // Remove leading/trailing underscores
-                
+                        .replaceAll("_+", "_")
+                        .toLowerCase()
+                        .replaceAll("^_|_$", ""); // Remove leading/trailing underscores
+
                 return ".indexed_" + cleanName + "_files_cache.txt";
-                
+
             } catch (Exception e) {
                 System.err.println("⚠️ Error generating cache file name for " + directory + ": " + e.getMessage());
                 // Fallback to default

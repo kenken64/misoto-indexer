@@ -64,7 +64,8 @@ import java.util.stream.Stream;
 
 @Service
 @EnableAsync
-public class IndexingService {    @Autowired
+public class IndexingService {
+    @Autowired
     private VectorStore vectorStore;
 
     @Autowired
@@ -72,13 +73,13 @@ public class IndexingService {    @Autowired
 
     @Autowired
     private DynamicVectorStoreFactory vectorStoreFactory;
-    
+
     @Autowired
     @Qualifier("indexingExecutor")
     private Executor indexingExecutor;
-      @Autowired
+    @Autowired
     @Qualifier("virtualThreadExecutor")
-    private Executor virtualThreadExecutor;    // Collection name will be set dynamically based on directory being indexed
+    private Executor virtualThreadExecutor; // Collection name will be set dynamically based on directory being indexed
     private String collectionName = "codebase-index";
 
     // Progress tracking
@@ -88,68 +89,73 @@ public class IndexingService {    @Autowired
     private final Set<String> indexedFilePaths = ConcurrentHashMap.newKeySet();
     private volatile boolean indexingComplete = false;
     private volatile boolean indexingInProgress = false;
-    
+
     // Enhanced metrics tracking
     private final AtomicInteger activeVirtualThreads = new AtomicInteger(0);
     private final AtomicInteger peakVirtualThreads = new AtomicInteger(0);
-    private final AtomicLong totalTasksExecuted = new AtomicLong(0);    private final AtomicInteger failedFiles = new AtomicInteger(0);
+    private final AtomicLong totalTasksExecuted = new AtomicLong(0);
+    private final AtomicInteger failedFiles = new AtomicInteger(0);
     private final AtomicInteger skippedFiles = new AtomicInteger(0);
     private final Map<String, AtomicInteger> fileTypeStatistics = new ConcurrentHashMap<>();
     private final Map<String, AtomicInteger> skippedFileExtensions = new ConcurrentHashMap<>();
-    
+
     // Configurable indexing directory
     private String indexingDirectory = "src"; // default to src
 
     // File priority mappings
     private static final Map<String, Integer> FILE_PRIORITIES = Map.of(
-        "Controller.java", 1,    // REST controllers (highest priority)
-        "Service.java", 2,       // Business logic services
-        "Repository.java", 3,    // Data access
-        "Config.java", 4,        // Configuration classes
-        "Application.java", 5,   // Main application classes
-        ".java", 6,              // Other Java files
-        ".xml", 7,               // Configuration files
-        ".properties", 8,        // Properties files
-        ".md", 9                 // Documentation
-    );    private static final Set<String> SUPPORTED_EXTENSIONS = Set.of(
-        // Java ecosystem
-        ".java", ".xml", ".properties", ".yml", ".yaml", ".json", ".md", ".txt",
-        
-        // Template and documentation
-        ".st", ".adoc",
-        
-        // JVM languages
-        ".kt", ".scala",
-        
-        // Database
-        ".sql", ".cql",
-          // Web technologies
-        ".html", ".css", ".js", ".ts", ".jsp", ".asp", ".aspx", ".php",
-          // System and configuration
-        ".conf", ".cmd", ".sh", ".ps1",
-        
-        // Programming languages
-        ".py", ".c", ".cpp", ".cs", ".rb", ".vb", ".go", ".swift", 
-        ".lua", ".pl", ".r",
-        
-        // Document formats
-        ".pdf"
-    );// Persistence for indexed files
+            "Controller.java", 1, // REST controllers (highest priority)
+            "Service.java", 2, // Business logic services
+            "Repository.java", 3, // Data access
+            "Config.java", 4, // Configuration classes
+            "Application.java", 5, // Main application classes
+            ".java", 6, // Other Java files
+            ".xml", 7, // Configuration files
+            ".properties", 8, // Properties files
+            ".md", 9 // Documentation
+    );
+    private static final Set<String> SUPPORTED_EXTENSIONS = Set.of(
+            // Java ecosystem
+            ".java", ".xml", ".properties", ".yml", ".yaml", ".json", ".md", ".txt",
+
+            // Template and documentation
+            ".st", ".adoc",
+
+            // JVM languages
+            ".kt", ".scala",
+
+            // Database
+            ".sql", ".cql",
+            // Web technologies
+            ".html", ".css", ".js", ".ts", ".jsp", ".asp", ".aspx", ".php",
+            // System and configuration
+            ".conf", ".cmd", ".sh", ".ps1",
+
+            // Programming languages
+            ".py", ".c", ".cpp", ".cs", ".rb", ".vb", ".go", ".swift",
+            ".lua", ".pl", ".r",
+
+            // Document formats
+            ".pdf");// Persistence for indexed files
     private static final String INDEXED_FILES_CACHE = ".indexed_files_cache.txt";
-    private final Map<String, Long> fileModificationTimes = new ConcurrentHashMap<>();    @PostConstruct
+    private final Map<String, Long> fileModificationTimes = new ConcurrentHashMap<>();
+
+    @PostConstruct
     public void initializeIndexing() {
         System.out.println("🚀 Starting hybrid indexing system...");
         // Skip collection initialization - will be done when directory is set
         // initializeQdrantCollection();
-    }private void initializeQdrantCollection() {
+    }
+
+    private void initializeQdrantCollection() {
         // Temporarily suppress all gRPC and Qdrant logging during initialization
         suppressLogging();
-          try {
+        try {
             System.out.println("🔧 Checking Qdrant collection: " + collectionName);
-            
+
             // Check if collection exists
             boolean collectionExists = checkCollectionExists(collectionName);
-            
+
             if (!collectionExists) {
                 System.out.println("🆕 Creating Qdrant collection: " + collectionName);
                 createCollection(collectionName);
@@ -157,7 +163,7 @@ public class IndexingService {    @Autowired
             } else {
                 System.out.println("✅ Qdrant collection ready");
             }
-            
+
         } catch (Exception e) {
             System.err.println("⚠️ Warning: Could not initialize Qdrant collection: " + e.getMessage());
             System.err.println("💡 Make sure Ollama is running with nomic-embed-text model");
@@ -166,7 +172,7 @@ public class IndexingService {    @Autowired
             restoreLogging();
         }
     }
-    
+
     private void suppressLogging() {
         // Suppress gRPC and Qdrant loggers programmatically
         setLoggerLevel("io.grpc", Level.OFF);
@@ -174,7 +180,7 @@ public class IndexingService {    @Autowired
         setLoggerLevel("io.netty", Level.OFF);
         setLoggerLevel("grpc", Level.OFF);
     }
-    
+
     private void restoreLogging() {
         // Restore to WARN level (as per application.properties)
         setLoggerLevel("io.grpc", Level.WARN);
@@ -182,7 +188,7 @@ public class IndexingService {    @Autowired
         setLoggerLevel("io.netty", Level.WARN);
         setLoggerLevel("grpc", Level.WARN);
     }
-    
+
     private void setLoggerLevel(String loggerName, Level level) {
         try {
             Logger logger = (Logger) LoggerFactory.getLogger(loggerName);
@@ -190,7 +196,9 @@ public class IndexingService {    @Autowired
         } catch (Exception e) {
             // Ignore any errors setting log levels
         }
-    }private boolean checkCollectionExists(String targetCollectionName) {
+    }
+
+    private boolean checkCollectionExists(String targetCollectionName) {
         try {
             CollectionInfo info = qdrantClient.getCollectionInfoAsync(targetCollectionName).get();
             if (info != null) {
@@ -200,7 +208,8 @@ public class IndexingService {    @Autowired
                 if (vectorConfig.hasParams()) {
                     long dimensions = vectorConfig.getParams().getSize();
                     if (dimensions != 768) {
-                        System.out.println("⚠️ Collection " + targetCollectionName + " has wrong dimensions: " + dimensions + " (expected 768)");
+                        System.out.println("⚠️ Collection " + targetCollectionName + " has wrong dimensions: "
+                                + dimensions + " (expected 768)");
                         System.out.println("🗑️ Deleting and recreating collection with correct dimensions...");
                         deleteCollection(targetCollectionName);
                         return false; // Will trigger recreation
@@ -212,8 +221,8 @@ public class IndexingService {    @Autowired
         } catch (java.util.concurrent.ExecutionException e) {
             // Check if the error message indicates collection doesn't exist
             String errorMessage = e.getMessage();
-            if (errorMessage != null && 
-                (errorMessage.contains("NOT_FOUND") || errorMessage.contains("doesn't exist"))) {
+            if (errorMessage != null &&
+                    (errorMessage.contains("NOT_FOUND") || errorMessage.contains("doesn't exist"))) {
                 // Collection doesn't exist, this is expected
                 return false;
             }
@@ -223,8 +232,8 @@ public class IndexingService {    @Autowired
         } catch (Exception e) {
             // Check for collection not found in any exception
             String errorMessage = e.getMessage();
-            if (errorMessage != null && 
-                (errorMessage.contains("NOT_FOUND") || errorMessage.contains("doesn't exist"))) {
+            if (errorMessage != null &&
+                    (errorMessage.contains("NOT_FOUND") || errorMessage.contains("doesn't exist"))) {
                 return false;
             }
             // Log unexpected exceptions
@@ -232,7 +241,7 @@ public class IndexingService {    @Autowired
             return false;
         }
     }
-    
+
     private void deleteCollection(String targetCollectionName) {
         try {
             qdrantClient.deleteCollectionAsync(targetCollectionName).get();
@@ -240,50 +249,55 @@ public class IndexingService {    @Autowired
         } catch (Exception e) {
             System.err.println("⚠️ Warning: Error deleting collection " + targetCollectionName + ": " + e.getMessage());
         }
-    }private void createCollection(String targetCollectionName) throws Exception {
+    }
+
+    private void createCollection(String targetCollectionName) throws Exception {
         // Create vector parameters for embeddings
         // nomic-embed-text produces 768-dimensional embeddings
         VectorParams vectorParams = VectorParams.newBuilder()
-            .setSize(768)  // nomic-embed-text embedding dimension
-            .setDistance(Distance.Cosine)
-            .build();
+                .setSize(768) // nomic-embed-text embedding dimension
+                .setDistance(Distance.Cosine)
+                .build();
 
         // Create collection request
         CreateCollection createCollection = CreateCollection.newBuilder()
-            .setCollectionName(targetCollectionName)
-            .setVectorsConfig(
-                io.qdrant.client.grpc.Collections.VectorsConfig.newBuilder()
-                    .setParams(vectorParams)
-                    .build()
-            )
-            .build();
+                .setCollectionName(targetCollectionName)
+                .setVectorsConfig(
+                        io.qdrant.client.grpc.Collections.VectorsConfig.newBuilder()
+                                .setParams(vectorParams)
+                                .build())
+                .build();
 
         // Execute collection creation
         qdrantClient.createCollectionAsync(createCollection).get();
-    }/**
+    }
+
+    /**
      * Set the directory to index
      */
     public void setIndexingDirectory(String directory) {
         this.indexingDirectory = directory;
         System.out.println("📁 Indexing directory set to: " + directory);
-        
+
         // If indexing is not in progress, restart it with new directory
         if (!indexingInProgress) {
             // Reset counters and statistics
             resetIndexingStatistics();
-            
+
             // Load previously indexed files to avoid re-indexing
             loadIndexedFilesCache();
-            
+
             startHybridIndexing();
         }
-    }    private void resetIndexingStatistics() {
+    }
+
+    private void resetIndexingStatistics() {
         totalFiles.set(0);
         indexedFiles.set(0);
         indexedFilePaths.clear();
         fileModificationTimes.clear();
         indexingComplete = false;
-          // Reset enhanced metrics
+        // Reset enhanced metrics
         activeVirtualThreads.set(0);
         peakVirtualThreads.set(0);
         totalTasksExecuted.set(0);
@@ -291,11 +305,11 @@ public class IndexingService {    @Autowired
         skippedFiles.set(0);
         fileTypeStatistics.clear();
         skippedFileExtensions.clear();
-        
+
         // Clear the cache when resetting (usually when changing directory)
         clearIndexedFilesCache();
     }
-    
+
     public void startHybridIndexing() {
         if (indexingInProgress) {
             System.out.println("⚠️ Indexing already in progress");
@@ -304,152 +318,162 @@ public class IndexingService {    @Autowired
 
         indexingInProgress = true;
         startTime.set(System.currentTimeMillis());
-        
+
         // Start with priority files first
         indexPriorityFilesAsync();
-        
+
         // Then continue with remaining files in background
         indexRemainingFilesAsync();
-    }    @Async("indexingExecutor")
-    public CompletableFuture<Void> indexPriorityFilesAsync() {        try {
+    }
+
+    @Async("indexingExecutor")
+    public CompletableFuture<Void> indexPriorityFilesAsync() {
+        try {
             System.out.println("📋 Phase 1: Indexing priority files in background...");
-            
+
             List<File> priorityFiles = getPriorityFiles();
             List<File> newPriorityFiles = priorityFiles.stream()
-                .filter(this::needsReindexing)
-                .toList();
-                
+                    .filter(this::needsReindexing)
+                    .toList();
+
             totalFiles.addAndGet(newPriorityFiles.size());
-            
+
             if (newPriorityFiles.isEmpty()) {
                 System.out.println("✅ All priority files already indexed! Search is available.");
                 return CompletableFuture.completedFuture(null);
             }
-            
+
             // Use virtual threads for parallel processing of priority files
             List<CompletableFuture<Void>> futures = newPriorityFiles.stream()
-                .map(file -> CompletableFuture.runAsync(() -> indexFile(file), virtualThreadExecutor))
-                .toList();
-            
+                    .map(file -> CompletableFuture.runAsync(() -> indexFile(file), virtualThreadExecutor))
+                    .toList();
+
             // Wait for all priority files to complete
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-            
+
             System.out.println("✅ Priority files indexed! Search is now available.");
-            
+
         } catch (Exception e) {
             System.err.println("❌ Error indexing priority files: " + e.getMessage());
         }
-        
+
         return CompletableFuture.completedFuture(null);
-    }    @Async("virtualThreadExecutor")
+    }
+
+    @Async("virtualThreadExecutor")
     public CompletableFuture<Void> indexRemainingFilesAsync() {
         try {
             // Wait a bit to let priority files finish
             Thread.sleep(1000);
-            
-            System.out.println("📋 Phase 2: Indexing remaining files in background...");            List<File> allFiles = getAllCodebaseFiles();
+
+            System.out.println("📋 Phase 2: Indexing remaining files in background...");
+            List<File> allFiles = getAllCodebaseFiles();
             List<File> remainingFiles = allFiles.stream()
-                .filter(this::needsReindexing)
-                .toList();
-            
+                    .filter(this::needsReindexing)
+                    .toList();
+
             totalFiles.addAndGet(remainingFiles.size());
-            
+
             if (remainingFiles.isEmpty()) {
                 System.out.println("✅ All files already indexed! Indexing complete.");
                 indexingComplete = true;
                 indexingInProgress = false;
                 return CompletableFuture.completedFuture(null);
             }
-            
+
             System.out.println("🚀 Processing " + remainingFiles.size() + " new/modified files in background");
-            
+
             // Process files in batches using virtual threads for optimal I/O performance
             int batchSize = 20; // Process files in batches to avoid overwhelming the system
             for (int i = 0; i < remainingFiles.size(); i += batchSize) {
                 int endIndex = Math.min(i + batchSize, remainingFiles.size());
                 List<File> batch = remainingFiles.subList(i, endIndex);
-                  // Create virtual threads for each file in the batch
+                // Create virtual threads for each file in the batch
                 List<CompletableFuture<Void>> batchFutures = batch.stream()
-                    .filter(this::needsReindexing)
-                    .map(file -> CompletableFuture.runAsync(() -> indexFile(file), virtualThreadExecutor))
-                    .toList();
-                  // Wait for batch to complete before processing next batch
+                        .filter(this::needsReindexing)
+                        .map(file -> CompletableFuture.runAsync(() -> indexFile(file), virtualThreadExecutor))
+                        .toList();
+                // Wait for batch to complete before processing next batch
                 CompletableFuture.allOf(batchFutures.toArray(new CompletableFuture[0])).join();
-                
+
                 // Batch completed - no console output for progress
             }
-            
+
             indexingComplete = true;
             indexingInProgress = false;
-            
+
             long duration = (System.currentTimeMillis() - startTime.get()) / 1000;
-            System.out.println("🎉 Complete indexing finished! " + 
-                             indexedFiles.get() + " files indexed in " + duration + "s");
-            
+            System.out.println("🎉 Complete indexing finished! " +
+                    indexedFiles.get() + " files indexed in " + duration + "s");
+
         } catch (Exception e) {
             System.err.println("❌ Error in background indexing: " + e.getMessage());
             indexingInProgress = false;
         }
-        
+
         return CompletableFuture.completedFuture(null);
-    }private List<File> getPriorityFiles() {
+    }
+
+    private List<File> getPriorityFiles() {
         List<File> priorityFiles = new ArrayList<>();
-        
+
         try {
             // Check if the configured indexing directory exists
             Path indexPath = Paths.get(indexingDirectory);
             if (Files.exists(indexPath)) {
                 try (Stream<Path> paths = Files.walk(indexPath)) {
                     List<File> indexFiles = paths
-                        .filter(Files::isRegularFile)
-                        .filter(this::isSupportedFile)
-                        .map(Path::toFile)
-                        .toList();
-                    
+                            .filter(Files::isRegularFile)
+                            .filter(this::isSupportedFile)
+                            .map(Path::toFile)
+                            .toList();
+
                     priorityFiles.addAll(indexFiles.stream()
-                        .filter(file -> getFilePriority(file) <= 5)
-                        .toList());
+                            .filter(file -> getFilePriority(file) <= 5)
+                            .toList());
                 }
             }
-            
+
             // Also check current directory for other important files
             try (Stream<Path> paths = Files.walk(Paths.get("."), 2)) { // Max depth 2
                 List<File> candidates = paths
-                    .filter(Files::isRegularFile)
-                    .filter(this::isSupportedFile)
-                    .filter(this::isNotInExcludedDirectory)
-                    .map(Path::toFile)
-                    .toList();
-                
+                        .filter(Files::isRegularFile)
+                        .filter(this::isSupportedFile)
+                        .filter(this::isNotInExcludedDirectory)
+                        .map(Path::toFile)
+                        .toList();
+
                 // Add high priority files from root directory
                 candidates.stream()
-                    .filter(file -> getFilePriority(file) <= 5)
-                    .filter(file -> !priorityFiles.contains(file))
-                    .forEach(priorityFiles::add);
+                        .filter(file -> getFilePriority(file) <= 5)
+                        .filter(file -> !priorityFiles.contains(file))
+                        .forEach(priorityFiles::add);
             }
-            
+
             // Sort by priority
             priorityFiles.sort((f1, f2) -> {
                 int p1 = getFilePriority(f1);
                 int p2 = getFilePriority(f2);
                 return Integer.compare(p1, p2);
             });
-                
+
         } catch (Exception e) {
             System.err.println("❌ Error finding priority files: " + e.getMessage());
             e.printStackTrace();
         }
-        
+
         return priorityFiles;
-    }    private List<File> getAllCodebaseFiles() {
+    }
+
+    private List<File> getAllCodebaseFiles() {
         List<File> allFiles = new ArrayList<>();
-        
+
         try (Stream<Path> paths = Files.walk(Paths.get(indexingDirectory))) {
             List<Path> allPaths = paths
-                .filter(Files::isRegularFile)
-                .filter(this::isNotInExcludedDirectory)
-                .toList();
-            
+                    .filter(Files::isRegularFile)
+                    .filter(this::isNotInExcludedDirectory)
+                    .toList();
+
             // Track skipped file extensions
             for (Path path : allPaths) {
                 if (isSupportedFile(path)) {
@@ -467,11 +491,11 @@ public class IndexingService {    @Autowired
                     }
                 }
             }
-                
+
         } catch (Exception e) {
             System.err.println("❌ Error scanning codebase in " + indexingDirectory + ": " + e.getMessage());
         }
-        
+
         return allFiles;
     }
 
@@ -482,43 +506,45 @@ public class IndexingService {    @Autowired
 
     private boolean isNotInExcludedDirectory(Path path) {
         String pathStr = path.toString().toLowerCase();
-        return !pathStr.contains("target") && 
-               !pathStr.contains(".git") && 
-               !pathStr.contains("node_modules") &&
-               !pathStr.contains(".idea") &&
-               !pathStr.contains(".vscode");
+        return !pathStr.contains("target") &&
+                !pathStr.contains(".git") &&
+                !pathStr.contains("node_modules") &&
+                !pathStr.contains(".idea") &&
+                !pathStr.contains(".vscode");
     }
 
     private int getFilePriority(File file) {
         String fileName = file.getName();
-        
+
         // Check for specific patterns first
         for (Map.Entry<String, Integer> entry : FILE_PRIORITIES.entrySet()) {
             if (fileName.contains(entry.getKey())) {
                 return entry.getValue();
             }
         }
-        
+
         // Default priority
         return 10;
-    }    private void indexFile(File file) {
+    }
+
+    private void indexFile(File file) {
         // Track virtual thread usage
         int currentThreads = activeVirtualThreads.incrementAndGet();
         totalTasksExecuted.incrementAndGet();
-        
+
         // Update peak thread count
         int peak = peakVirtualThreads.get();
         while (currentThreads > peak && !peakVirtualThreads.compareAndSet(peak, currentThreads)) {
             peak = peakVirtualThreads.get();
         }
-        
+
         try {
             if (file.length() > 1024 * 1024) { // Skip files larger than 1MB
                 skippedFiles.incrementAndGet();
                 // Log to background only
                 return;
             }
-            
+
             // Track file type statistics
             String fileType = getFileExtension(file);
             AtomicInteger count = fileTypeStatistics.get(fileType);
@@ -527,39 +553,40 @@ public class IndexingService {    @Autowired
                 fileTypeStatistics.put(fileType, count);
             }
             count.incrementAndGet();
-              // STEP 1: Raw Text Extraction
-            List<Document> documents = createDocumentsFromFile(file);            if (!documents.isEmpty()) {
+            // STEP 1: Raw Text Extraction
+            List<Document> documents = createDocumentsFromFile(file);
+            if (!documents.isEmpty()) {
                 try {
-                    // STEP 2-4: Text → nomic-embed-text → Vector → Qdrant 
+                    // STEP 2-4: Text → nomic-embed-text → Vector → Qdrant
                     // Use dynamic VectorStore with the correct collection name for this directory
                     VectorStore dynamicVectorStore = vectorStoreFactory.createVectorStore(collectionName);
-                    
+
                     // This happens inside vectorStore.add() which:
                     // 1. Takes raw text from Document
                     // 2. Sends to nomic-embed-text model for embedding
-                    // 3. Converts to vector representation 
+                    // 3. Converts to vector representation
                     // 4. Stores in Qdrant with metadata in the correct collection
                     dynamicVectorStore.add(documents);
-                    
+
                     indexedFilePaths.add(file.getAbsolutePath());
                     indexedFiles.incrementAndGet();
-                    
+
                     // Save to persistent cache to avoid re-indexing
                     saveIndexedFile(file.getAbsolutePath());
-                      } catch (Exception embeddingError) {
+                } catch (Exception embeddingError) {
                     // Handle specific embedding/encoding errors
                     String errorMessage = embeddingError.getMessage();
-                    if (errorMessage != null && (
-                        errorMessage.contains("Encoding special tokens") ||
-                        errorMessage.contains("token") ||
-                        errorMessage.contains("encoding") ||
-                        errorMessage.contains("special"))) {
-                        
+                    if (errorMessage != null && (errorMessage.contains("Encoding special tokens") ||
+                            errorMessage.contains("token") ||
+                            errorMessage.contains("encoding") ||
+                            errorMessage.contains("special"))) {
+
                         System.out.println("⚠️ Failed to index " + file.getName() + ": " + errorMessage);
                         // Mark as skipped due to encoding issues
                         skippedFiles.incrementAndGet();
-                        
-                        // Track files that couldn't be embedded using the already declared fileType variable
+
+                        // Track files that couldn't be embedded using the already declared fileType
+                        // variable
                         AtomicInteger skipCount = skippedFileExtensions.get(fileType);
                         if (skipCount == null) {
                             skipCount = new AtomicInteger(0);
@@ -571,12 +598,12 @@ public class IndexingService {    @Autowired
                         throw embeddingError;
                     }
                 }
-                
+
                 // Progress tracking for internal use only - no console output
             } else {
                 skippedFiles.incrementAndGet();
             }
-            
+
         } catch (Exception e) {
             failedFiles.incrementAndGet();
             // Log errors to background only - don't spam console
@@ -584,21 +611,24 @@ public class IndexingService {    @Autowired
             // Decrement active thread count
             activeVirtualThreads.decrementAndGet();
         }
-    }/**
+    }
+
+    /**
      * STEP 1: Extract Raw Text from files
      * Creates Document objects containing raw text content and metadata
-     * This is the first step in the flow: Raw Text → Embedding Model → Vector → Qdrant
+     * This is the first step in the flow: Raw Text → Embedding Model → Vector →
+     * Qdrant
      */
     private List<Document> createDocumentsFromFile(File file) {
         try {
-            if (file.getName().endsWith(".java") || 
-                file.getName().endsWith(".xml") || 
-                file.getName().endsWith(".properties") ||
-                file.getName().endsWith(".md")) {
-                
+            if (file.getName().endsWith(".java") ||
+                    file.getName().endsWith(".xml") ||
+                    file.getName().endsWith(".properties") ||
+                    file.getName().endsWith(".md")) {
+
                 // STEP 1a: Read raw text content from file
                 String content = Files.readString(file.toPath());
-                  // STEP 1b: Create metadata for the document
+                // STEP 1b: Create metadata for the document
                 Map<String, Object> metadata = new HashMap<>();
                 metadata.put("filename", file.getName());
                 metadata.put("filepath", file.getAbsolutePath());
@@ -609,9 +639,10 @@ public class IndexingService {    @Autowired
                 metadata.put("lastModifiedDate", new java.util.Date(file.lastModified()).toString());
                 metadata.put("collectionName", collectionName);
                 metadata.put("indexedAt", new java.util.Date().toString());
-                
+
                 // STEP 1c: Split large files into manageable chunks
-                // Each chunk will be processed through: Text → nomic-embed-text → Vector → Qdrant
+                // Each chunk will be processed through: Text → nomic-embed-text → Vector →
+                // Qdrant
                 List<Document> documents = new ArrayList<>();
                 if (content.length() > 4000) {
                     List<String> chunks = splitIntoChunks(content, 3000, 500); // 3000 chars with 500 overlap
@@ -626,24 +657,24 @@ public class IndexingService {    @Autowired
                     // Create Document with raw text - ready for embedding pipeline
                     documents.add(new Document(content, metadata));
                 }
-                
+
                 return documents;
             }
-            
+
         } catch (Exception e) {
             System.err.println("❌ Error creating document for " + file.getName() + ": " + e.getMessage());
         }
-        
+
         return List.of();
     }
 
     private List<String> splitIntoChunks(String text, int chunkSize, int overlap) {
         List<String> chunks = new ArrayList<>();
         int start = 0;
-        
+
         while (start < text.length()) {
             int end = Math.min(start + chunkSize, text.length());
-            
+
             // Try to break at natural boundaries (lines, sentences)
             if (end < text.length()) {
                 int lastNewline = text.lastIndexOf('\n', end);
@@ -651,11 +682,11 @@ public class IndexingService {    @Autowired
                     end = lastNewline;
                 }
             }
-            
+
             chunks.add(text.substring(start, end));
             start = Math.max(start + chunkSize - overlap, end);
         }
-        
+
         return chunks;
     }
 
@@ -690,73 +721,79 @@ public class IndexingService {    @Autowired
     public Set<String> getIndexedFiles() {
         return new HashSet<>(indexedFilePaths);
     }
-    
+
     // Enhanced metrics methods
     public long getCurrentIndexingDuration() {
-        if (startTime.get() == 0) return 0;
+        if (startTime.get() == 0)
+            return 0;
         return System.currentTimeMillis() - startTime.get();
     }
-    
+
     public long getTotalIndexingDuration() {
-        if (startTime.get() == 0) return 0;
+        if (startTime.get() == 0)
+            return 0;
         if (indexingInProgress) {
             return getCurrentIndexingDuration();
         }
         // If completed, we need to track the end time
         return getCurrentIndexingDuration();
     }
-    
+
     public long getEstimatedTotalDuration() {
-        if (indexedFiles.get() == 0) return 0;
-        
+        if (indexedFiles.get() == 0)
+            return 0;
+
         long currentDuration = getCurrentIndexingDuration();
         int totalFilesToIndex = totalFiles.get();
         int filesIndexed = indexedFiles.get();
-        
-        if (filesIndexed == 0) return 0;
-        
+
+        if (filesIndexed == 0)
+            return 0;
+
         // Estimate based on current progress
         return (currentDuration * totalFilesToIndex) / filesIndexed;
     }
-    
+
     public double getIndexingSpeed() {
         long duration = getCurrentIndexingDuration();
-        if (duration == 0) return 0.0;
-        
+        if (duration == 0)
+            return 0.0;
+
         return (indexedFiles.get() * 1000.0) / duration; // files per second
     }
-    
+
     public int getActiveVirtualThreads() {
         return activeVirtualThreads.get();
     }
-    
+
     public int getPeakVirtualThreads() {
         return peakVirtualThreads.get();
     }
-    
+
     public long getTotalTasksExecuted() {
         return totalTasksExecuted.get();
     }
-    
+
     public int getFailedFileCount() {
         return failedFiles.get();
     }
-    
+
     public int getSkippedFileCount() {
         return skippedFiles.get();
     }
-    
+
     public Map<String, Integer> getFileTypeStatistics() {
         Map<String, Integer> stats = new HashMap<>();
         fileTypeStatistics.forEach((type, count) -> stats.put(type, count.get()));
         return stats;
     }
-    
+
     public Map<String, Integer> getSkippedFileExtensions() {
         Map<String, Integer> stats = new HashMap<>();
         skippedFileExtensions.forEach((extension, count) -> stats.put(extension, count.get()));
         return stats;
     }
+
     /**
      * Load previously indexed files from cache to avoid re-indexing
      * Also validates files still exist and haven't been modified
@@ -769,13 +806,13 @@ public class IndexingService {    @Autowired
                 List<String> validCacheEntries = new ArrayList<>();
                 List<String> deletedFiles = new ArrayList<>();
                 int modifiedFiles = 0;
-                
+
                 for (String line : cachedFiles) {
                     if (line.trim().startsWith("INDEXED:")) {
                         String[] parts = line.split("\\|");
                         String filePath = parts[0].substring("INDEXED:".length()).trim();
                         long cachedModTime = parts.length > 1 ? Long.parseLong(parts[1]) : 0;
-                        
+
                         Path file = Paths.get(filePath);
                         if (Files.exists(file)) {
                             try {
@@ -800,25 +837,26 @@ public class IndexingService {    @Autowired
                         }
                     }
                 }
-                
+
                 // Handle deleted files
                 if (!deletedFiles.isEmpty()) {
                     removeDeletedFilesFromVectorStore(deletedFiles);
                 }
-                
+
                 // Update cache file with only valid entries
                 if (!deletedFiles.isEmpty() || modifiedFiles > 0) {
                     rebuildCacheFile(validCacheEntries);
                 }
-                
-                System.out.println("📋 Cache loaded: " + indexedFilePaths.size() + " valid files, " + 
-                                 deletedFiles.size() + " deleted, " + modifiedFiles + " modified");
+
+                System.out.println("📋 Cache loaded: " + indexedFilePaths.size() + " valid files, " +
+                        deletedFiles.size() + " deleted, " + modifiedFiles + " modified");
             }
         } catch (Exception e) {
             System.err.println("⚠️ Could not load indexed files cache: " + e.getMessage());
         }
     }
-      /**
+
+    /**
      * Save an indexed file to cache with modification time
      */
     private void saveIndexedFile(String filePath) {
@@ -826,16 +864,16 @@ public class IndexingService {    @Autowired
             Path file = Paths.get(filePath);
             long modTime = Files.getLastModifiedTime(file).toMillis();
             fileModificationTimes.put(filePath, modTime);
-            
+
             String cacheEntry = "INDEXED:" + filePath + "|" + modTime + System.lineSeparator();
-            Files.writeString(Paths.get(INDEXED_FILES_CACHE), 
-                cacheEntry, 
-                StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+            Files.writeString(Paths.get(INDEXED_FILES_CACHE),
+                    cacheEntry,
+                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
         } catch (Exception e) {
             // Ignore cache write errors
         }
     }
-    
+
     /**
      * Clear the indexed files cache when changing directory
      */
@@ -846,7 +884,7 @@ public class IndexingService {    @Autowired
             // Ignore cache deletion errors
         }
     }
-    
+
     /**
      * Rebuild the cache file with valid entries only
      */
@@ -854,30 +892,30 @@ public class IndexingService {    @Autowired
         try {
             Files.deleteIfExists(Paths.get(INDEXED_FILES_CACHE));
             if (!validEntries.isEmpty()) {
-                Files.write(Paths.get(INDEXED_FILES_CACHE), validEntries, 
-                           StandardOpenOption.CREATE);
+                Files.write(Paths.get(INDEXED_FILES_CACHE), validEntries,
+                        StandardOpenOption.CREATE);
             }
         } catch (Exception e) {
             // Ignore cache rebuild errors
         }
     }
-    
+
     /**
      * Check if a file needs re-indexing (new or modified)
      */
     private boolean needsReindexing(File file) {
         String filePath = file.getAbsolutePath();
-        
+
         // If not in cache, needs indexing
         if (!indexedFilePaths.contains(filePath)) {
             return true;
         }
-        
+
         // Check if file has been modified
         try {
             long currentModTime = Files.getLastModifiedTime(file.toPath()).toMillis();
             Long cachedModTime = fileModificationTimes.get(filePath);
-            
+
             if (cachedModTime == null || currentModTime != cachedModTime) {
                 // File modified - remove from cache and re-index
                 indexedFilePaths.remove(filePath);
@@ -888,10 +926,10 @@ public class IndexingService {    @Autowired
             // Error reading modification time - assume needs re-indexing
             return true;
         }
-        
+
         return false;
     }
-    
+
     /**
      * Remove deleted files from vector store
      */
@@ -899,120 +937,129 @@ public class IndexingService {    @Autowired
         if (deletedFiles.isEmpty()) {
             return;
         }
-        
+
         try {
             // Note: Qdrant doesn't have a direct API to delete by metadata
             // This would require implementing a custom deletion strategy
-            // For now, we just remove from our cache - the vector store will contain orphaned entries
+            // For now, we just remove from our cache - the vector store will contain
+            // orphaned entries
             System.out.println("⚠️ " + deletedFiles.size() + " deleted files removed from cache");
             // TODO: Implement vector store cleanup for deleted files
         } catch (Exception e) {
             System.err.println("⚠️ Error removing deleted files from vector store: " + e.getMessage());
         }
     }
-      /**
+
+    /**
      * Restart the indexing process
      */
     public void restartIndexing() {
         try {
             System.out.println("🔄 Restarting indexing process...");
-            
-            // Step 1: Delete and recreate the Qdrant collection to remove all old vector data
+
+            // Step 1: Delete and recreate the Qdrant collection to remove all old vector
+            // data
             deleteAndRecreateCollection();
-            
+
             // Step 2: Reset state
             indexingInProgress = false;
             indexingComplete = false;
             indexedFiles.set(0);
             startTime.set(System.currentTimeMillis());
-            
+
             // Step 3: Clear local cache and file modification times
             indexedFilePaths.clear();
             fileModificationTimes.clear();
-            
+
             // Step 4: Clear the cache file on disk
             clearIndexedFilesCache();
-            
+
             // Step 5: Reset all counters and statistics
             failedFiles.set(0);
             skippedFiles.set(0);
             fileTypeStatistics.clear();
             skippedFileExtensions.clear();
-            
+
             // Step 6: Start fresh indexing with clean collection
             startHybridIndexing();
-            
+
             System.out.println("✅ Collection cleared and indexing restarted successfully");
-            
+
         } catch (Exception e) {
             System.err.println("❌ Failed to restart indexing: " + e.getMessage());
             throw new RuntimeException("Failed to restart indexing", e);
         }
     }
-      /**
+
+    /**
      * Clear cache and reindex all files
      */
     public void clearCacheAndReindex() {
         try {
             System.out.println("🗑️ Clearing cache and starting fresh indexing...");
-            
-            // Step 1: Delete and recreate the Qdrant collection to remove all old vector data
+
+            // Step 1: Delete and recreate the Qdrant collection to remove all old vector
+            // data
             deleteAndRecreateCollection();
-            
+
             // Step 2: Clear the local cached file set
             indexedFilePaths.clear();
             fileModificationTimes.clear();
-            
+
             // Step 3: Clear the cache file on disk
             clearIndexedFilesCache();
-            
+
             // Step 4: Reset all counters
             indexedFiles.set(0);
             failedFiles.set(0);
             skippedFiles.set(0);
             fileTypeStatistics.clear();
             skippedFileExtensions.clear();
-            
+
             // Step 5: Reset timing
             startTime.set(System.currentTimeMillis());
-            
+
             // Step 6: Reset status flags
             indexingInProgress = false;
             indexingComplete = false;
-            
+
             // Step 7: Start fresh indexing with clean collection
             startHybridIndexing();
-            
+
             System.out.println("✅ Collection cleared, cache cleared, and reindexing started");
-            
+
         } catch (Exception e) {
             System.err.println("❌ Failed to clear cache and reindex: " + e.getMessage());
             throw new RuntimeException("Failed to clear cache and reindex", e);
         }
     }
-    
+
     /**
      * Get the current indexing directory
      */
     public String getCurrentIndexingDirectory() {
         return indexingDirectory != null ? indexingDirectory : "Not set";
-    }    /**
+    }
+
+    /**
      * Set the Qdrant collection name dynamically
+     * 
      * @param collectionName the name of the collection to use
      */
     public void setCollectionName(String collectionName) {
         this.collectionName = collectionName;
         System.out.println("📦 Collection name set to: " + collectionName);
-        
+
         // Initialize both our dynamic collection AND the default VectorStore collection
         initializeBothCollections();
     }
-      /**
+
+    /**
      * Initialize the dynamic collection based on the directory being indexed
      */
     private void initializeBothCollections() {
         suppressLogging();
-        
+
         try {
             // Initialize our dynamically named collection
             System.out.println("🔧 Checking dynamic collection: " + collectionName);
@@ -1023,34 +1070,35 @@ public class IndexingService {    @Autowired
             } else {
                 System.out.println("✅ Dynamic collection ready: " + collectionName);
             }
-            
+
         } catch (Exception e) {
             System.err.println("⚠️ Warning: Error during collection initialization: " + e.getMessage());
         } finally {
             restoreLogging();
         }
     }
-    
+
     /**
-     * Clean up existing collections with wrong dimensions and initialize the correct collection
+     * Clean up existing collections with wrong dimensions and initialize the
+     * correct collection
      */
     private void cleanupAndInitializeCollection() {
         suppressLogging();
-        
+
         try {
             // First, clean up any collections that might have wrong dimensions
             cleanupWrongDimensionCollections();
-            
+
             // Then initialize our collection
             initializeQdrantCollection();
-            
+
         } catch (Exception e) {
             System.err.println("⚠️ Warning: Error during collection cleanup and initialization: " + e.getMessage());
         } finally {
             restoreLogging();
         }
     }
-    
+
     /**
      * Clean up collections that have wrong vector dimensions
      */
@@ -1058,12 +1106,12 @@ public class IndexingService {    @Autowired
         try {
             // List of potential collection names that might exist with wrong dimensions
             String[] potentialCollections = {
-                "codebase-index", 
-                "codebase-index-ollama", 
-                "codebase-index-spring-ai",
-                collectionName // Also check our current collection name
+                    "codebase-index",
+                    "codebase-index-ollama",
+                    "codebase-index-spring-ai",
+                    collectionName // Also check our current collection name
             };
-            
+
             for (String collName : potentialCollections) {
                 try {
                     CollectionInfo info = qdrantClient.getCollectionInfoAsync(collName).get();
@@ -1072,7 +1120,8 @@ public class IndexingService {    @Autowired
                         if (vectorConfig.hasParams()) {
                             long dimensions = vectorConfig.getParams().getSize();
                             if (dimensions != 768) {
-                                System.out.println("🗑️ Deleting collection '" + collName + "' with wrong dimensions: " + dimensions);
+                                System.out.println("🗑️ Deleting collection '" + collName + "' with wrong dimensions: "
+                                        + dimensions);
                                 qdrantClient.deleteCollectionAsync(collName).get();
                             }
                         }
@@ -1080,8 +1129,8 @@ public class IndexingService {    @Autowired
                 } catch (Exception e) {
                     // Collection doesn't exist or other error - ignore
                     String errorMessage = e.getMessage();
-                    if (errorMessage == null || 
-                        (!errorMessage.contains("NOT_FOUND") && !errorMessage.contains("doesn't exist"))) {
+                    if (errorMessage == null ||
+                            (!errorMessage.contains("NOT_FOUND") && !errorMessage.contains("doesn't exist"))) {
                         System.err.println("⚠️ Warning checking collection '" + collName + "': " + e.getMessage());
                     }
                 }
@@ -1090,23 +1139,25 @@ public class IndexingService {    @Autowired
             System.err.println("⚠️ Warning during collection cleanup: " + e.getMessage());
         }
     }
-      /**
+
+    /**
      * Set both indexing directory and collection name for the codebase directory
-     * @param directory the directory to index  
+     * 
+     * @param directory the directory to index
      */
     public void setIndexingDirectoryWithCollection(String directory) {
         setIndexingDirectory(directory);
-        
+
         // Generate collection name based on the actual directory being indexed
         String collectionName = generateCollectionName(directory);
         setCollectionName(collectionName);
     }
-    
+
     /**
      * Generate collection name based on directory path
      * Examples:
      * - d:\Projects\misoto-indexer\codebase\spring-ai → codebase-index-spring-ai
-     * - d:\Projects\misoto-indexer\codebase\ollama → codebase-index-ollama  
+     * - d:\Projects\misoto-indexer\codebase\ollama → codebase-index-ollama
      * - d:\Projects\misoto-indexer\src → codebase-index-src
      * - /home/user/project → codebase-index-project
      */
@@ -1114,11 +1165,11 @@ public class IndexingService {    @Autowired
         try {
             // Normalize path separators
             String normalizedDir = directory.replace('\\', '/');
-            
+
             // Extract the last directory name
             String[] parts = normalizedDir.split("/");
             String lastDir = parts[parts.length - 1];
-            
+
             // If it's within a codebase directory, use the subdirectory name
             if (directory.contains("codebase") && parts.length >= 2) {
                 // Find the index of "codebase" in the path
@@ -1130,15 +1181,15 @@ public class IndexingService {    @Autowired
                     }
                 }
             }
-            
+
             // Clean up the directory name (remove special characters, lowercase)
             String cleanName = lastDir.replaceAll("[^a-zA-Z0-9\\-_]", "-")
-                                     .replaceAll("-+", "-")
-                                     .toLowerCase()
-                                     .replaceAll("^-|-$", ""); // Remove leading/trailing dashes
-            
+                    .replaceAll("-+", "-")
+                    .toLowerCase()
+                    .replaceAll("^-|-$", ""); // Remove leading/trailing dashes
+
             return "codebase-index-" + cleanName;
-            
+
         } catch (Exception e) {
             System.err.println("⚠️ Error generating collection name for " + directory + ": " + e.getMessage());
             // Fallback to default
@@ -1148,19 +1199,20 @@ public class IndexingService {    @Autowired
 
     /**
      * Get the current collection name being used for indexing
-     */    public String getCurrentCollectionName() {
+     */
+    public String getCurrentCollectionName() {
         return collectionName;
     }
-    
+
     /**
      * Delete and recreate the Qdrant collection to ensure clean vector data
      */
     private void deleteAndRecreateCollection() {
         suppressLogging();
-        
+
         try {
             System.out.println("🗑️ Deleting Qdrant collection: " + collectionName);
-            
+
             // Step 1: Try to delete the existing collection
             try {
                 qdrantClient.deleteCollectionAsync(collectionName).get();
@@ -1168,22 +1220,22 @@ public class IndexingService {    @Autowired
             } catch (Exception deleteError) {
                 // Collection might not exist - that's fine
                 String errorMessage = deleteError.getMessage();
-                if (errorMessage != null && 
-                    (errorMessage.contains("NOT_FOUND") || errorMessage.contains("doesn't exist"))) {
+                if (errorMessage != null &&
+                        (errorMessage.contains("NOT_FOUND") || errorMessage.contains("doesn't exist"))) {
                     System.out.println("ℹ️ Collection didn't exist: " + collectionName);
                 } else {
                     System.err.println("⚠️ Warning deleting collection: " + deleteError.getMessage());
                 }
             }
-            
+
             // Step 2: Wait a moment for deletion to complete
             Thread.sleep(1000);
-            
+
             // Step 3: Create the collection fresh with correct dimensions
             System.out.println("🆕 Creating fresh Qdrant collection: " + collectionName);
             createCollection(collectionName);
             System.out.println("✅ Fresh collection created: " + collectionName);
-            
+
         } catch (Exception e) {
             System.err.println("❌ Error during collection deletion/recreation: " + e.getMessage());
             throw new RuntimeException("Failed to delete and recreate collection", e);

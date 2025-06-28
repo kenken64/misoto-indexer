@@ -1,0 +1,323 @@
+package sg.edu.nus.iss.codebase.indexer.service.impl;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.io.TempDir;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import sg.edu.nus.iss.codebase.indexer.service.impl.FileCacheRepositoryImpl;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Set;
+
+import static org.assertj.core.api.Assertions.*;
+
+@ExtendWith(MockitoExtension.class)
+class FileCacheRepositoryImplTest {
+
+    private FileCacheRepositoryImpl cacheRepository;
+
+    @TempDir
+    Path tempDir;
+
+    private Path cacheFile;
+
+    @BeforeEach
+    void setUp() {
+        cacheFile = tempDir.resolve("test_cache.txt");
+        cacheRepository = new FileCacheRepositoryImpl();
+        cacheRepository.setCacheFileName(cacheFile.toString());
+    }
+
+    @Test
+    void saveIndexedFile_ShouldAddFileToCache() {
+        // Arrange
+        String filePath = "/path/to/test/file.java";
+
+        // Act
+        cacheRepository.saveIndexedFile(filePath);
+
+        // Assert
+        assertThat(cacheRepository.isFileIndexed(filePath)).isTrue();
+        assertThat(cacheRepository.getCacheSize()).isEqualTo(1);
+    }
+
+    @Test
+    void isFileIndexed_ShouldReturnFalseForNewFile() {
+        // Arrange
+        String filePath = "/path/to/new/file.java";
+
+        // Act & Assert
+        assertThat(cacheRepository.isFileIndexed(filePath)).isFalse();
+    }
+
+    @Test
+    void isFileIndexed_ShouldReturnTrueForIndexedFile() {
+        // Arrange
+        String filePath = "/path/to/indexed/file.java";
+        cacheRepository.saveIndexedFile(filePath);
+
+        // Act & Assert
+        assertThat(cacheRepository.isFileIndexed(filePath)).isTrue();
+    }
+
+    @Test
+    void needsReindexing_ShouldReturnTrueForNewFile() throws IOException {
+        // Arrange
+        Path testFile = tempDir.resolve("new_file.java");
+        Files.write(testFile, "public class Test {}".getBytes());
+
+        // Act & Assert
+        assertThat(cacheRepository.needsReindexing(testFile.toString())).isTrue();
+    }
+
+    @Test
+    void needsReindexing_ShouldReturnFalseForAlreadyIndexedFile() throws IOException {
+        // Arrange
+        Path testFile = tempDir.resolve("indexed_file.java");
+        Files.write(testFile, "public class Test {}".getBytes());
+        cacheRepository.saveIndexedFile(testFile.toString());
+
+        // Act & Assert
+        assertThat(cacheRepository.needsReindexing(testFile.toString())).isFalse();
+    }
+
+    @Test
+    void needsReindexing_ShouldReturnTrueForModifiedFile() throws IOException {
+        // Arrange
+        Path testFile = tempDir.resolve("modified_file.java");
+        Files.write(testFile, "public class Test {}".getBytes());
+        
+        // Index the file
+        cacheRepository.saveIndexedFile(testFile.toString());
+        
+        // Wait a moment and modify the file
+        try {
+            Thread.sleep(10);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        Files.write(testFile, "public class Modified {}".getBytes());
+
+        // Act & Assert
+        assertThat(cacheRepository.needsReindexing(testFile.toString())).isTrue();
+    }
+
+    @Test
+    void needsReindexing_ShouldHandleNonExistentFile() {
+        // Arrange
+        String nonExistentFile = "/path/to/non/existent/file.java";
+
+        // Act & Assert
+        assertThat(cacheRepository.needsReindexing(nonExistentFile)).isTrue();
+    }
+
+    @Test
+    void clearCache_ShouldRemoveAllCachedFiles() {
+        // Arrange
+        cacheRepository.saveIndexedFile("/path/to/file1.java");
+        cacheRepository.saveIndexedFile("/path/to/file2.java");
+        cacheRepository.saveIndexedFile("/path/to/file3.java");
+
+        // Act
+        cacheRepository.clearCache();
+
+        // Assert
+        assertThat(cacheRepository.getCacheSize()).isEqualTo(0);
+        assertThat(cacheRepository.isFileIndexed("/path/to/file1.java")).isFalse();
+        assertThat(cacheRepository.isFileIndexed("/path/to/file2.java")).isFalse();
+        assertThat(cacheRepository.isFileIndexed("/path/to/file3.java")).isFalse();
+    }
+
+    @Test
+    void getIndexedFiles_ShouldReturnAllIndexedFiles() {
+        // Arrange
+        String file1 = "/path/to/file1.java";
+        String file2 = "/path/to/file2.java";
+        String file3 = "/path/to/file3.java";
+        
+        cacheRepository.saveIndexedFile(file1);
+        cacheRepository.saveIndexedFile(file2);
+        cacheRepository.saveIndexedFile(file3);
+
+        // Act
+        Set<String> indexedFiles = cacheRepository.getIndexedFiles();
+
+        // Assert
+        assertThat(indexedFiles).hasSize(3);
+        assertThat(indexedFiles).contains(file1, file2, file3);
+    }
+
+    @Test
+    void getCacheSize_ShouldReturnCorrectCount() {
+        // Arrange
+        assertThat(cacheRepository.getCacheSize()).isEqualTo(0);
+
+        // Act & Assert
+        cacheRepository.saveIndexedFile("/path/to/file1.java");
+        assertThat(cacheRepository.getCacheSize()).isEqualTo(1);
+
+        cacheRepository.saveIndexedFile("/path/to/file2.java");
+        assertThat(cacheRepository.getCacheSize()).isEqualTo(2);
+
+        cacheRepository.saveIndexedFile("/path/to/file3.java");
+        assertThat(cacheRepository.getCacheSize()).isEqualTo(3);
+    }
+
+    @Test
+    void saveIndexedFile_ShouldNotDuplicateFiles() {
+        // Arrange
+        String filePath = "/path/to/duplicate/file.java";
+
+        // Act
+        cacheRepository.saveIndexedFile(filePath);
+        cacheRepository.saveIndexedFile(filePath); // Add same file again
+        cacheRepository.saveIndexedFile(filePath); // And again
+
+        // Assert
+        assertThat(cacheRepository.getCacheSize()).isEqualTo(1);
+        assertThat(cacheRepository.getIndexedFiles()).containsExactly(filePath);
+    }
+
+    @Test
+    void setCacheFileName_ShouldUpdateCacheFile() {
+        // Arrange
+        String newCacheFileName = tempDir.resolve("new_cache.txt").toString();
+
+        // Act
+        cacheRepository.setCacheFileName(newCacheFileName);
+
+        // Assert
+        // Cache should be empty after changing cache file
+        assertThat(cacheRepository.getCacheSize()).isEqualTo(0);
+    }
+
+    @Test
+    void persistenceTest_ShouldSaveAndLoadFromFile() throws IOException {
+        // Arrange
+        String file1 = "/path/to/persistent/file1.java";
+        String file2 = "/path/to/persistent/file2.java";
+        
+        cacheRepository.saveIndexedFile(file1);
+        cacheRepository.saveIndexedFile(file2);
+
+        // Create a new repository instance with the same cache file
+        FileCacheRepositoryImpl newRepository = new FileCacheRepositoryImpl();
+        newRepository.setCacheFileName(cacheFile.toString());
+
+        // Act & Assert
+        assertThat(newRepository.isFileIndexed(file1)).isTrue();
+        assertThat(newRepository.isFileIndexed(file2)).isTrue();
+        assertThat(newRepository.getCacheSize()).isEqualTo(2);
+    }
+
+    @Test
+    void needsReindexing_ShouldHandleFileWithSpaces() throws IOException {
+        // Arrange
+        Path testFile = tempDir.resolve("file with spaces.java");
+        Files.write(testFile, "public class Test {}".getBytes());
+
+        // Act & Assert
+        assertThat(cacheRepository.needsReindexing(testFile.toString())).isTrue();
+        
+        cacheRepository.saveIndexedFile(testFile.toString());
+        assertThat(cacheRepository.needsReindexing(testFile.toString())).isFalse();
+    }
+
+    @Test
+    void needsReindexing_ShouldHandleSpecialCharacters() throws IOException {
+        // Arrange
+        Path testFile = tempDir.resolve("file-with_special@chars#.java");
+        Files.write(testFile, "public class Test {}".getBytes());
+
+        // Act & Assert
+        assertThat(cacheRepository.needsReindexing(testFile.toString())).isTrue();
+        
+        cacheRepository.saveIndexedFile(testFile.toString());
+        assertThat(cacheRepository.needsReindexing(testFile.toString())).isFalse();
+    }
+
+    @Test
+    void saveIndexedFile_ShouldHandleNullFilePath() {
+        // Act & Assert
+        assertThatThrownBy(() -> cacheRepository.saveIndexedFile(null))
+            .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void saveIndexedFile_ShouldHandleEmptyFilePath() {
+        // Act & Assert
+        assertThatThrownBy(() -> cacheRepository.saveIndexedFile(""))
+            .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void isFileIndexed_ShouldHandleNullFilePath() {
+        // Act & Assert
+        assertThat(cacheRepository.isFileIndexed(null)).isFalse();
+    }
+
+    @Test
+    void needsReindexing_ShouldHandleNullFilePath() {
+        // Act & Assert
+        assertThat(cacheRepository.needsReindexing(null)).isTrue();
+    }
+
+    @Test
+    void concurrentAccess_ShouldBeThreadSafe() throws InterruptedException {
+        // Arrange
+        int numberOfThreads = 10;
+        int filesPerThread = 100;
+        Thread[] threads = new Thread[numberOfThreads];
+
+        // Act
+        for (int i = 0; i < numberOfThreads; i++) {
+            final int threadId = i;
+            threads[i] = new Thread(() -> {
+                for (int j = 0; j < filesPerThread; j++) {
+                    String filePath = "/path/to/thread" + threadId + "/file" + j + ".java";
+                    cacheRepository.saveIndexedFile(filePath);
+                }
+            });
+            threads[i].start();
+        }
+
+        // Wait for all threads to complete
+        for (Thread thread : threads) {
+            thread.join();
+        }
+
+        // Assert
+        assertThat(cacheRepository.getCacheSize()).isEqualTo(numberOfThreads * filesPerThread);
+    }
+
+    @Test
+    void largeCacheSize_ShouldHandleThousandsOfFiles() {
+        // Arrange & Act
+        for (int i = 0; i < 5000; i++) {
+            cacheRepository.saveIndexedFile("/path/to/large/file" + i + ".java");
+        }
+
+        // Assert
+        assertThat(cacheRepository.getCacheSize()).isEqualTo(5000);
+        assertThat(cacheRepository.isFileIndexed("/path/to/large/file2500.java")).isTrue();
+        assertThat(cacheRepository.isFileIndexed("/path/to/large/file4999.java")).isTrue();
+    }
+
+    @Test
+    void clearCache_ShouldRemoveCacheFile() throws IOException {
+        // Arrange
+        cacheRepository.saveIndexedFile("/path/to/file.java");
+        assertThat(Files.exists(cacheFile)).isTrue();
+
+        // Act
+        cacheRepository.clearCache();
+
+        // Assert
+        assertThat(cacheRepository.getCacheSize()).isEqualTo(0);
+    }
+}
