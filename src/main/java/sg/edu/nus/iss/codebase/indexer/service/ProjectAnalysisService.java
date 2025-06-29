@@ -66,6 +66,13 @@ public class ProjectAnalysisService {
      * Analyze a project directory to determine its type and extract dependencies
      */
     public ProjectAnalysis analyzeProject(Path projectPath) throws IOException {
+        return analyzeProject(projectPath, false);
+    }
+    
+    /**
+     * Analyze a project directory with option to skip expensive operations for search
+     */
+    public ProjectAnalysis analyzeProject(Path projectPath, boolean quickAnalysis) throws IOException {
         ProjectAnalysis analysis = new ProjectAnalysis(projectPath.toString());
         
         // Detect project type based on files and structure
@@ -76,52 +83,68 @@ public class ProjectAnalysisService {
         switch (projectType) {
             case PYTHON:
                 extractPythonDependencies(projectPath, analysis);
+                if (!quickAnalysis) identifyFrameworksFromDependenciesAndCode(projectPath, analysis, quickAnalysis);
                 break;
             case JAVA_MAVEN:
                 extractMavenDependencies(projectPath, analysis);
+                if (!quickAnalysis) identifyFrameworksFromDependenciesAndCode(projectPath, analysis, quickAnalysis);
                 break;
             case JAVA_GRADLE:
                 extractGradleDependencies(projectPath, analysis);
+                if (!quickAnalysis) identifyFrameworksFromDependenciesAndCode(projectPath, analysis, quickAnalysis);
                 break;
             case JAVASCRIPT_NODE:
                 extractNodeDependencies(projectPath, analysis);
+                if (!quickAnalysis) identifyFrameworksFromDependenciesAndCode(projectPath, analysis, quickAnalysis);
                 break;
             case SPRING_BOOT:
                 extractSpringBootDependencies(projectPath, analysis);
+                if (!quickAnalysis) identifyFrameworksFromDependenciesAndCode(projectPath, analysis, quickAnalysis);
                 break;
             case FLASK:
                 extractFlaskDependencies(projectPath, analysis);
+                if (!quickAnalysis) identifyFrameworksFromDependenciesAndCode(projectPath, analysis, quickAnalysis);
                 break;
             case REACT:
                 extractReactDependencies(projectPath, analysis);
+                if (!quickAnalysis) generateFrameworkDocumentation("React", analysis);
                 break;
             case REACT_NATIVE:
                 extractReactNativeDependencies(projectPath, analysis);
+                if (!quickAnalysis) generateFrameworkDocumentation("React Native", analysis);
                 break;
             case ANGULAR:
                 extractAngularDependencies(projectPath, analysis);
+                if (!quickAnalysis) generateFrameworkDocumentation("Angular", analysis);
                 break;
             case VUE:
                 extractVueDependencies(projectPath, analysis);
+                if (!quickAnalysis) generateFrameworkDocumentation("Vue.js", analysis);
                 break;
             case FLUTTER:
                 extractFlutterDependencies(projectPath, analysis);
+                if (!quickAnalysis) generateFrameworkDocumentation("Flutter", analysis);
                 break;
             case RUST:
                 extractRustDependencies(projectPath, analysis);
+                if (!quickAnalysis) generateFrameworkDocumentation("Rust", analysis);
                 break;
             case GO:
                 extractGoDependencies(projectPath, analysis);
+                if (!quickAnalysis) generateFrameworkDocumentation("Go", analysis);
                 break;
             case CSHARP_DOTNET:
                 extractDotNetDependencies(projectPath, analysis);
+                if (!quickAnalysis) generateFrameworkDocumentation("C#/.NET", analysis);
                 break;
             case MIXED:
                 extractMixedProjectDependencies(projectPath, analysis);
+                if (!quickAnalysis) identifyFrameworksFromDependenciesAndCode(projectPath, analysis, quickAnalysis);
                 break;
             default:
                 // For unknown projects, try to detect common patterns
                 extractGenericDependencies(projectPath, analysis);
+                if (!quickAnalysis) identifyFrameworksFromDependenciesAndCode(projectPath, analysis, quickAnalysis);
                 break;
         }
         
@@ -545,8 +568,7 @@ public class ProjectAnalysisService {
             String content = Files.readString(packageJsonPath);
             extractNodeDependenciesFromPackageJson(content, analysis);
             
-            // Dynamically identify frameworks using Ollama based on dependencies and code patterns
-            identifyFrameworksFromDependenciesAndCode(projectPath, analysis);
+            // Framework identification moved to main analysis method to support quick analysis
         }
     }
 
@@ -588,8 +610,7 @@ public class ProjectAnalysisService {
         extractMavenDependencies(projectPath, analysis);
         extractGradleDependencies(projectPath, analysis);
         
-        // Dynamically identify frameworks using Ollama based on dependencies and code patterns
-        identifyFrameworksFromDependenciesAndCode(projectPath, analysis);
+        // Framework identification moved to main analysis method to support quick analysis
         
         // Scan for additional patterns
         scanCodePatterns(projectPath, analysis);
@@ -602,8 +623,7 @@ public class ProjectAnalysisService {
         // First extract Python dependencies
         extractPythonDependencies(projectPath, analysis);
         
-        // Dynamically identify frameworks using Ollama based on dependencies and code patterns
-        identifyFrameworksFromDependenciesAndCode(projectPath, analysis);
+        // Framework identification moved to main analysis method to support quick analysis
         
         // Scan for additional patterns
         scanCodePatterns(projectPath, analysis);
@@ -828,8 +848,15 @@ public class ProjectAnalysisService {
     /**
      * Use AI to dynamically identify frameworks from dependencies and code patterns
      */
-    private void identifyFrameworksFromDependenciesAndCode(Path projectPath, ProjectAnalysis analysis) {
+    private void identifyFrameworksFromDependenciesAndCode(Path projectPath, ProjectAnalysis analysis, boolean quickAnalysis) {
         try {
+            // For quick analysis (during search), skip expensive AI operations
+            if (quickAnalysis) {
+                // Only do basic pattern detection for search operations
+                fallbackFrameworkDetection(projectPath, analysis);
+                return;
+            }
+            
             // Create a comprehensive prompt with dependencies and code samples
             String prompt = createFrameworkIdentificationPrompt(analysis, projectPath);
             String response = callAIService(prompt);
@@ -1072,15 +1099,21 @@ public class ProjectAnalysisService {
                         String frameworkType = parts[1].replace("TYPE:", "").trim();
                         String confidence = parts[2].replace("CONFIDENCE:", "").trim();
                         
-                        // Only add frameworks with medium or high confidence
-                        if (confidence.equalsIgnoreCase("high") || confidence.equalsIgnoreCase("medium")) {
+                        // Only add frameworks with HIGH confidence to avoid processing too many libraries
+                        // Medium confidence frameworks are often generic libraries (argparse, datasets, etc.)
+                        if (confidence.equalsIgnoreCase("high")) {
                             analysis.addFramework(frameworkName);
                             
-                            // Generate documentation for this framework
+                            // Generate documentation for high-confidence frameworks only
                             generateFrameworkDocumentation(frameworkName, analysis);
                             
                             System.out.println("🔍 Identified framework: " + frameworkName + 
                                 " (type: " + frameworkType + ", confidence: " + confidence + ")");
+                        } else if (confidence.equalsIgnoreCase("medium")) {
+                            // For medium confidence, just add the framework without expensive documentation generation
+                            analysis.addFramework(frameworkName);
+                            System.out.println("🔍 Identified framework: " + frameworkName + 
+                                " (type: " + frameworkType + ", confidence: " + confidence + ") - skipping docs");
                         }
                     }
                 } catch (Exception e) {

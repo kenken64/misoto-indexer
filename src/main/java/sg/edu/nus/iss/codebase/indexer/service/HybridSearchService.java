@@ -1242,9 +1242,9 @@ public class HybridSearchService {
         try {
             System.out.println("🔍 Analyzing project context for: " + currentDirectory);
             
-            // Use the ProjectAnalysisService to analyze the current directory
+            // Use quick analysis for search operations to avoid expensive AI calls
             Path projectPath = Paths.get(currentDirectory);
-            ProjectAnalysisService.ProjectAnalysis analysis = projectAnalysisService.analyzeProject(projectPath);
+            ProjectAnalysisService.ProjectAnalysis analysis = projectAnalysisService.analyzeProject(projectPath, true);
             
             // Extract context information
             String projectType = analysis.getProjectType().name();
