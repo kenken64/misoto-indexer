@@ -14,6 +14,8 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.stream.Collectors;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 @Service
 public class HybridSearchService {
@@ -27,6 +29,8 @@ public class HybridSearchService {
     private FileSearchService fileSearchService;
     @Autowired
     private FileIndexingService indexingService;
+    @Autowired
+    private ProjectAnalysisService projectAnalysisService;
 
     /**
      * Hybrid search combining vector search with file-based fallback
@@ -594,20 +598,16 @@ public class HybridSearchService {
             System.out.println("🔍 Semantic search in collection: " + currentCollection + " (directory: "
                     + currentDirectory + ")");
 
-            // Use threshold if specified
-            List<Document> documents;
-            if (request.getThreshold() != null) {
-                documents = dynamicVectorStore.similaritySearch(request.getQuery());
-                // Filter by threshold - this is a simplified approach
-                // In a real implementation, you'd have more sophisticated threshold filtering
-            } else {
-                documents = dynamicVectorStore.similaritySearch(request.getQuery());
-            }
-
-            return documents.stream()
-                    .limit(request.getLimit())
-                    .map(doc -> convertToSearchResultWithScore(doc, request.getQuery()))
-                    .collect(Collectors.toList());
+            // STEP 1: PROJECT-AWARE SEARCH STRATEGY
+            // Analyze the current project context to tailor the search
+            ProjectContext projectContext = analyzeProjectContext(currentDirectory);
+            
+            // STEP 2: Create project-specific search strategy
+            List<SearchResult> results = performProjectAwareSearch(request, dynamicVectorStore, projectContext);
+            
+            System.out.println("🎯 Project-aware search completed - " + results.size() + " results found");
+            
+            return results;
 
         } catch (Exception e) {
             // Only log non-gRPC related errors
@@ -650,8 +650,8 @@ public class HybridSearchService {
         metadata = new HashMap<>(metadata); // Create mutable copy
         metadata.put("collectionName", currentCollection);
 
-        // Calculate a simple relevance score based on query match
-        double score = calculateRelevanceScore(content, query);
+        // Calculate relevance score with document type boost
+        double score = calculateRelevanceScoreWithMetadata(content, query, metadata);
 
         // Extract line matches from content
         List<FileSearchService.LineMatch> lineMatches = extractLineMatchesFromContent(content, query);
@@ -659,7 +659,7 @@ public class HybridSearchService {
         return new SearchResult(fileName, filePath, content, score, "semantic", metadata, lineMatches);
     }
 
-    private double calculateRelevanceScore(String content, String query) {
+    private double calculateRelevanceScoreWithMetadata(String content, String query, Map<String, Object> metadata) {
         // Simple relevance scoring - count query terms in content
         String[] queryTerms = query.toLowerCase().split("\\s+");
         String contentLower = content.toLowerCase();
@@ -668,7 +668,53 @@ public class HybridSearchService {
                 .mapToLong(term -> contentLower.split(term, -1).length - 1)
                 .sum();
 
-        // Normalize by content length
+        // Base score normalized by content length
+        double baseScore = Math.min(1.0, matches / Math.max(1.0, contentLower.length() / 100.0));
+        
+        // Apply document type boost
+        String documentType = (String) metadata.getOrDefault("documentType", "");
+        double documentTypeBoost = getDocumentTypeBoost(documentType, query);
+        
+        // Apply the boost
+        double finalScore = Math.min(1.0, baseScore * documentTypeBoost);
+        
+        return Math.max(0.1, finalScore); // Ensure minimum score for prioritized documents
+    }
+    
+    private double getDocumentTypeBoost(String documentType, String query) {
+        String queryLower = query.toLowerCase();
+        
+        // Strong boost for project analysis queries
+        if (isProjectAnalysisQuery(queryLower)) {
+            switch (documentType) {
+                case "projectAnalysis": return 3.0;
+                case "frameworkDocumentation": return 2.5;
+                case "dependencies": return 2.0;
+                default: return 1.0;
+            }
+        }
+        
+        // Standard boost for all queries
+        switch (documentType) {
+            case "projectAnalysis": return 1.5;
+            case "frameworkDocumentation": return 1.3;
+            case "dependencies": return 1.2;
+            default: return 1.0;
+        }
+    }
+
+    private double calculateRelevanceScore(String content, String query) {
+        Map<String, Object> metadata = null; // We'll need to pass metadata here
+        
+        // Simple relevance scoring - count query terms in content
+        String[] queryTerms = query.toLowerCase().split("\\s+");
+        String contentLower = content.toLowerCase();
+
+        long matches = Arrays.stream(queryTerms)
+                .mapToLong(term -> contentLower.split(term, -1).length - 1)
+                .sum();
+
+        // Base score normalized by content length
         return Math.min(1.0, matches / Math.max(1.0, contentLower.length() / 100.0));
     }
 
@@ -1112,5 +1158,391 @@ public class HybridSearchService {
         enhancedQuery += " framework documentation syntax pattern";
         
         return enhancedQuery;
+    }
+
+    /**
+     * Check if the query is related to project analysis, frameworks, or dependencies
+     */
+    private boolean isProjectAnalysisQuery(String query) {
+        String queryLower = query.toLowerCase();
+        return queryLower.contains("@app.route") || 
+               queryLower.contains("flask") || 
+               queryLower.contains("spring") || 
+               queryLower.contains("framework") || 
+               queryLower.contains("dependency") || 
+               queryLower.contains("dependencies") || 
+               queryLower.contains("project type") || 
+               queryLower.contains("rest api") || 
+               queryLower.contains("endpoint") || 
+               queryLower.contains("@") ||
+               queryLower.contains("library") ||
+               queryLower.contains("package") ||
+               queryLower.contains("technology");
+    }
+
+    /**
+     * Check if a document type should be prioritized regardless of similarity score
+     */
+    private boolean isPrioritizedDocumentType(SearchResult result) {
+        Map<String, Object> metadata = result.getMetadata();
+        String documentType = (String) metadata.getOrDefault("documentType", "");
+        
+        // Always include project analysis, dependencies, and framework documentation
+        return "projectAnalysis".equals(documentType) ||
+               "dependencies".equals(documentType) ||
+               "frameworkDocumentation".equals(documentType);
+    }
+
+    /**
+     * Project context information for search strategy
+     */
+    private static class ProjectContext {
+        private final String projectPath;
+        private final String projectType;
+        private final List<String> frameworks;
+        private final List<String> dependencies;
+        private final Map<String, Object> metadata;
+
+        public ProjectContext(String projectPath, String projectType, List<String> frameworks, 
+                             List<String> dependencies, Map<String, Object> metadata) {
+            this.projectPath = projectPath;
+            this.projectType = projectType;
+            this.frameworks = frameworks;
+            this.dependencies = dependencies;
+            this.metadata = metadata;
+        }
+
+        public String getProjectPath() { return projectPath; }
+        public String getProjectType() { return projectType; }
+        public List<String> getFrameworks() { return frameworks; }
+        public List<String> getDependencies() { return dependencies; }
+        public Map<String, Object> getMetadata() { return metadata; }
+        
+        public boolean isFlaskProject() {
+            return "FLASK".equals(projectType) || frameworks.contains("Flask");
+        }
+        
+        public boolean isPythonProject() {
+            return "PYTHON".equals(projectType) || "FLASK".equals(projectType);
+        }
+        
+        public boolean isSpringBootProject() {
+            return "SPRING_BOOT".equals(projectType) || frameworks.contains("Spring Boot");
+        }
+        
+        public boolean isJavaProject() {
+            return projectType.contains("JAVA") || isSpringBootProject();
+        }
+    }
+
+    /**
+     * Analyze the current project context to understand what type of project we're searching
+     */
+    private ProjectContext analyzeProjectContext(String currentDirectory) {
+        try {
+            System.out.println("🔍 Analyzing project context for: " + currentDirectory);
+            
+            // Use the ProjectAnalysisService to analyze the current directory
+            Path projectPath = Paths.get(currentDirectory);
+            ProjectAnalysisService.ProjectAnalysis analysis = projectAnalysisService.analyzeProject(projectPath);
+            
+            // Extract context information
+            String projectType = analysis.getProjectType().name();
+            List<String> frameworks = new ArrayList<>(analysis.getFrameworks());
+            List<String> dependencies = analysis.getDependencies().stream()
+                    .map(ProjectAnalysisService.Dependency::getName)
+                    .collect(Collectors.toList());
+            
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("dependencyCount", analysis.getDependencies().size());
+            metadata.put("frameworkCount", analysis.getFrameworks().size());
+            
+            System.out.println("📁 Project Type: " + analysis.getProjectType().getDisplayName());
+            System.out.println("🛠️ Frameworks: " + String.join(", ", frameworks));
+            System.out.println("📦 Dependencies: " + dependencies.size() + " found");
+            
+            return new ProjectContext(currentDirectory, projectType, frameworks, dependencies, metadata);
+            
+        } catch (Exception e) {
+            System.err.println("⚠️ Error analyzing project context: " + e.getMessage());
+            // Return a default context
+            return new ProjectContext(currentDirectory, "UNKNOWN", new ArrayList<>(), new ArrayList<>(), new HashMap<>());
+        }
+    }
+
+    /**
+     * Perform project-aware semantic search based on the project context
+     */
+    private List<SearchResult> performProjectAwareSearch(SearchRequest request, VectorStore vectorStore, ProjectContext context) {
+        System.out.println("🎯 Performing project-aware search...");
+        
+        // Generate project-specific search terms
+        List<String> searchQueries = generateProjectSpecificQueries(request.getQuery(), context);
+        
+        // Collect all documents from multiple search strategies
+        Set<Document> allDocuments = new HashSet<>();
+        
+        // Strategy 1: Original query
+        List<Document> originalResults = vectorStore.similaritySearch(request.getQuery());
+        allDocuments.addAll(originalResults);
+        System.out.println("📊 Original query returned: " + originalResults.size() + " documents");
+        
+        // Strategy 2: Project-specific queries
+        for (String query : searchQueries) {
+            List<Document> specificResults = vectorStore.similaritySearch(query);
+            allDocuments.addAll(specificResults);
+            System.out.println("📊 Project-specific query '" + query + "' returned: " + specificResults.size() + " documents");
+        }
+        
+        System.out.println("📊 Total unique documents collected: " + allDocuments.size());
+        
+        // Convert and score results based on project context
+        List<SearchResult> searchResults = allDocuments.stream()
+                .map(doc -> convertToSearchResultWithProjectContext(doc, request.getQuery(), context))
+                .collect(Collectors.toList());
+
+        // Apply project-aware filtering and sorting
+        final double threshold = determineProjectAwareThreshold(request, context);
+        final String queryForComparison = request.getQuery();
+        
+        List<SearchResult> filteredResults = searchResults.stream()
+                .filter(result -> result.getScore() >= threshold || isPrioritizedForProject(result, context))
+                .sorted((a, b) -> compareSearchResultsWithProjectContext(a, b, queryForComparison, context))
+                .limit(request.getLimit())
+                .collect(Collectors.toList());
+
+        System.out.println("🎯 Applied project-aware threshold " + threshold + " - " + filteredResults.size() + " results passed");
+        
+        return filteredResults;
+    }
+
+    /**
+     * Generate project-specific search queries based on the project context
+     */
+    private List<String> generateProjectSpecificQueries(String originalQuery, ProjectContext context) {
+        List<String> queries = new ArrayList<>();
+        
+        // For Flask/Python projects
+        if (context.isFlaskProject()) {
+            System.out.println("🐍 Generating Flask-specific search terms");
+            queries.add("@app.route flask endpoint " + originalQuery);
+            queries.add("flask dependencies requirements.txt " + originalQuery);
+            queries.add("python flask " + originalQuery);
+            
+            // If query mentions routes, add Flask-specific patterns
+            if (originalQuery.toLowerCase().contains("route") || originalQuery.toLowerCase().contains("endpoint")) {
+                queries.add("@app.route('/api/ flask");
+                queries.add("def api endpoint flask");
+                queries.add("return jsonify flask");
+            }
+        }
+        
+        // For Spring Boot/Java projects
+        if (context.isSpringBootProject()) {
+            System.out.println("☕ Generating Spring Boot-specific search terms");
+            queries.add("@RestController @RequestMapping " + originalQuery);
+            queries.add("spring boot dependencies pom.xml " + originalQuery);
+            queries.add("@GetMapping @PostMapping " + originalQuery);
+            
+            // If query mentions routes, add Spring-specific patterns
+            if (originalQuery.toLowerCase().contains("route") || originalQuery.toLowerCase().contains("endpoint")) {
+                queries.add("@RequestMapping(\"/api/ spring");
+                queries.add("@GetMapping @PostMapping spring");
+                queries.add("ResponseEntity spring boot");
+            }
+        }
+        
+        // For Python projects in general
+        if (context.isPythonProject()) {
+            queries.add("python dependencies requirements.txt " + originalQuery);
+            queries.add("import python " + originalQuery);
+            
+            // Add specific dependencies found in the project
+            for (String dep : context.getDependencies()) {
+                if (dep.toLowerCase().contains("flask") || dep.toLowerCase().contains("django") || 
+                    dep.toLowerCase().contains("fastapi")) {
+                    queries.add(dep + " " + originalQuery);
+                }
+            }
+        }
+        
+        // For Java projects in general
+        if (context.isJavaProject()) {
+            queries.add("java dependencies pom.xml " + originalQuery);
+            queries.add("@Component @Service @Repository " + originalQuery);
+        }
+        
+        // Add framework-specific queries
+        for (String framework : context.getFrameworks()) {
+            queries.add(framework + " " + originalQuery);
+        }
+        
+        System.out.println("🔍 Generated " + queries.size() + " project-specific queries");
+        return queries;
+    }
+
+    /**
+     * Convert document to SearchResult with project context awareness
+     */
+    private SearchResult convertToSearchResultWithProjectContext(Document document, String query, ProjectContext context) {
+        Map<String, Object> metadata = document.getMetadata();
+        String fileName = metadata.getOrDefault("filename", "Unknown").toString();
+        String filePath = metadata.getOrDefault("filepath", "Unknown").toString();
+        String content = document.getText();
+
+        // Add current collection name to metadata for proper display
+        String currentCollection = indexingService.getCurrentCollectionName();
+        metadata = new HashMap<>(metadata);
+        metadata.put("collectionName", currentCollection);
+
+        // Calculate relevance score with project context boost
+        double score = calculateRelevanceScoreWithProjectContext(content, query, metadata, context);
+
+        // Extract line matches from content
+        List<FileSearchService.LineMatch> lineMatches = extractLineMatchesFromContent(content, query);
+
+        return new SearchResult(fileName, filePath, content, score, "semantic", metadata, lineMatches);
+    }
+
+    /**
+     * Calculate relevance score with project context awareness
+     */
+    private double calculateRelevanceScoreWithProjectContext(String content, String query, 
+                                                           Map<String, Object> metadata, ProjectContext context) {
+        // Base scoring
+        double baseScore = calculateRelevanceScoreWithMetadata(content, query, metadata);
+        
+        // Apply project context boost
+        double contextBoost = getProjectContextBoost(content, metadata, context, query);
+        
+        // Final score with context boost
+        double finalScore = Math.min(1.0, baseScore * contextBoost);
+        
+        return Math.max(0.1, finalScore);
+    }
+    
+    /**
+     * Get boost factor based on project context
+     */
+    private double getProjectContextBoost(String content, Map<String, Object> metadata, 
+                                        ProjectContext context, String query) {
+        String documentType = (String) metadata.getOrDefault("documentType", "");
+        String contentLower = content.toLowerCase();
+        String queryLower = query.toLowerCase();
+        
+        double boost = 1.0;
+        
+        // Boost for project analysis documents
+        if ("projectAnalysis".equals(documentType) || "dependencies".equals(documentType)) {
+            boost = 2.0;
+        }
+        
+        // Flask project specific boosts
+        if (context.isFlaskProject()) {
+            if (contentLower.contains("@app.route") || contentLower.contains("flask")) {
+                boost *= 1.5;
+            }
+            if (queryLower.contains("route") && contentLower.contains("@app.route")) {
+                boost *= 2.0;
+            }
+            if (contentLower.contains("requirements.txt") || contentLower.contains("flask")) {
+                boost *= 1.3;
+            }
+        }
+        
+        // Spring Boot project specific boosts
+        if (context.isSpringBootProject()) {
+            if (contentLower.contains("@restcontroller") || contentLower.contains("@requestmapping")) {
+                boost *= 1.5;
+            }
+            if (queryLower.contains("endpoint") && contentLower.contains("@getmapping")) {
+                boost *= 2.0;
+            }
+            if (contentLower.contains("pom.xml") || contentLower.contains("spring")) {
+                boost *= 1.3;
+            }
+        }
+        
+        // Framework-specific boosts
+        for (String framework : context.getFrameworks()) {
+            if (contentLower.contains(framework.toLowerCase())) {
+                boost *= 1.2;
+            }
+        }
+        
+        return boost;
+    }
+
+    /**
+     * Determine threshold based on project context
+     */
+    private double determineProjectAwareThreshold(SearchRequest request, ProjectContext context) {
+        double baseThreshold = request.getThreshold() != null ? request.getThreshold() : 0.5;
+        
+        // Lower threshold for project analysis queries
+        if (isProjectAnalysisQuery(request.getQuery())) {
+            baseThreshold = Math.min(baseThreshold, 0.3);
+            System.out.println("🔍 Project analysis query detected - lowered threshold");
+        }
+        
+        // Lower threshold for framework-specific queries
+        String queryLower = request.getQuery().toLowerCase();
+        for (String framework : context.getFrameworks()) {
+            if (queryLower.contains(framework.toLowerCase())) {
+                baseThreshold = Math.min(baseThreshold, 0.4);
+                System.out.println("🛠️ Framework-specific query detected (" + framework + ") - lowered threshold");
+                break;
+            }
+        }
+        
+        return baseThreshold;
+    }
+
+    /**
+     * Check if a document should be prioritized for this project
+     */
+    private boolean isPrioritizedForProject(SearchResult result, ProjectContext context) {
+        Map<String, Object> metadata = result.getMetadata();
+        String documentType = (String) metadata.getOrDefault("documentType", "");
+        String content = result.getContent().toLowerCase();
+        
+        // Always prioritize project analysis and dependencies
+        if ("projectAnalysis".equals(documentType) || "dependencies".equals(documentType)) {
+            return true;
+        }
+        
+        // Prioritize framework-specific documents
+        for (String framework : context.getFrameworks()) {
+            if (content.contains(framework.toLowerCase())) {
+                return true;
+            }
+        }
+        
+        // Flask project priorities
+        if (context.isFlaskProject() && (content.contains("@app.route") || content.contains("flask"))) {
+            return true;
+        }
+        
+        // Spring Boot project priorities
+        if (context.isSpringBootProject() && (content.contains("@restcontroller") || content.contains("spring"))) {
+            return true;
+        }
+        
+        return false;
+    }
+
+    /**
+     * Compare search results with project context awareness
+     */
+    private int compareSearchResultsWithProjectContext(SearchResult a, SearchResult b, String query, ProjectContext context) {
+        // First, use project context priority
+        boolean aPrioritized = isPrioritizedForProject(a, context);
+        boolean bPrioritized = isPrioritizedForProject(b, context);
+        
+        if (aPrioritized && !bPrioritized) return -1;
+        if (!aPrioritized && bPrioritized) return 1;
+        
+        // Then use standard comparison
+        return compareSearchResults(a, b, query);
     }
 }
