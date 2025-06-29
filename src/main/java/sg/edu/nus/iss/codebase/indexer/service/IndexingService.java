@@ -670,6 +670,72 @@ public class IndexingService {
 
     private List<String> splitIntoChunks(String text, int chunkSize, int overlap) {
         List<String> chunks = new ArrayList<>();
+        
+        // For Python files, prioritize function definitions and decorators
+        if (isPythonFile(text)) {
+            chunks.addAll(createPythonAwareChunks(text, chunkSize, overlap));
+        } else {
+            chunks.addAll(createStandardChunks(text, chunkSize, overlap));
+        }
+
+        return chunks;
+    }
+    
+    private boolean isPythonFile(String text) {
+        // Check for Python-specific patterns
+        return text.contains("@app.route") || 
+               text.contains("def ") || 
+               text.contains("import ") ||
+               text.contains("from ") ||
+               text.contains("class ") ||
+               text.contains("if __name__ == '__main__':");
+    }
+    
+    private List<String> createPythonAwareChunks(String text, int chunkSize, int overlap) {
+        List<String> chunks = new ArrayList<>();
+        String[] lines = text.split("\n");
+        
+        List<Integer> importantLineIndices = new ArrayList<>();
+        
+        // Find important lines (decorators, function definitions, class definitions)
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i].trim();
+            if (line.startsWith("@") || 
+                line.startsWith("def ") || 
+                line.startsWith("class ") ||
+                line.contains("@app.route") ||
+                line.contains("@app.errorhandler") ||
+                line.startsWith("if __name__")) {
+                importantLineIndices.add(i);
+            }
+        }
+        
+        // Create chunks around important lines
+        for (int importantIndex : importantLineIndices) {
+            int start = Math.max(0, importantIndex - 5); // 5 lines before
+            int end = Math.min(lines.length, importantIndex + 15); // 15 lines after
+            
+            StringBuilder chunk = new StringBuilder();
+            for (int i = start; i < end; i++) {
+                chunk.append(lines[i]).append("\n");
+            }
+            
+            String chunkText = chunk.toString().trim();
+            if (!chunkText.isEmpty() && chunkText.length() > 50) { // Minimum meaningful size
+                chunks.add(chunkText);
+            }
+        }
+        
+        // If no important lines found or chunks too small, fall back to standard chunking
+        if (chunks.isEmpty()) {
+            chunks.addAll(createStandardChunks(text, chunkSize, overlap));
+        }
+        
+        return chunks;
+    }
+    
+    private List<String> createStandardChunks(String text, int chunkSize, int overlap) {
+        List<String> chunks = new ArrayList<>();
         int start = 0;
 
         while (start < text.length()) {

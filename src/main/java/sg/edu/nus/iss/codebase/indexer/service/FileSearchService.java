@@ -30,13 +30,20 @@ public class FileSearchService {
      * Fallback search using direct file content scanning
      */
     public List<SearchResult> searchInFiles(String query) {
+        return searchInFiles(query, false); // Default to case-insensitive
+    }
+
+    /**
+     * Fallback search using direct file content scanning with case sensitivity option
+     */
+    public List<SearchResult> searchInFiles(String query, boolean caseSensitive) {
         List<SearchResult> results = new ArrayList<>();
 
         try {
-            System.out.println("🔍 Performing file-based fallback search...");
+            System.out.println("🔍 Performing file-based fallback search... (case-sensitive: " + caseSensitive + ")");
 
             // Create search patterns
-            List<String> searchTerms = extractSearchTerms(query);
+            List<String> searchTerms = extractSearchTerms(query, caseSensitive);
 
             // Scan all supported files
             try (Stream<Path> paths = Files.walk(Paths.get(searchDirectory))) {
@@ -45,7 +52,7 @@ public class FileSearchService {
                         .filter(this::isNotInExcludedDirectory)
                         .forEach(path -> {
                             try {
-                                SearchResult result = searchInFile(path.toFile(), searchTerms, query);
+                                SearchResult result = searchInFile(path.toFile(), searchTerms, query, caseSensitive);
                                 if (result != null && result.getRelevanceScore() > 0) {
                                     results.add(result);
                                 }
@@ -67,7 +74,7 @@ public class FileSearchService {
         }
     }
 
-    private SearchResult searchInFile(File file, List<String> searchTerms, String originalQuery) {
+    private SearchResult searchInFile(File file, List<String> searchTerms, String originalQuery, boolean caseSensitive) {
         try {
             if (file.length() > 1024 * 1024) { // Skip files larger than 1MB
                 return null;
@@ -80,21 +87,50 @@ public class FileSearchService {
             List<String> matchedSnippets = new ArrayList<>();
             List<LineMatch> lineMatches = new ArrayList<>();
 
-            // Check for exact phrase match
-            if (content.toLowerCase().contains(originalQuery.toLowerCase())) {
-                relevanceScore += 10.0;
-                matchedSnippets.addAll(extractSnippets(content, originalQuery));
-                lineMatches.addAll(findLineMatches(lines, originalQuery));
+            // PRIORITY 1: Check for exact phrase match first (most important)
+            boolean exactMatch = caseSensitive ? 
+                content.contains(originalQuery) : 
+                content.toLowerCase().contains(originalQuery.toLowerCase());
+                
+            if (exactMatch) {
+                relevanceScore += 100.0; // Much higher weight for exact matches
+                matchedSnippets.addAll(extractSnippets(content, originalQuery, caseSensitive));
+                lineMatches.addAll(findLineMatches(lines, originalQuery, caseSensitive));
+                
+                // For exact matches, return immediately to avoid diluting results
+                if (relevanceScore >= 100.0) {
+                    List<String> uniqueSnippets = matchedSnippets.stream()
+                            .distinct()
+                            .limit(3)
+                            .toList();
+                    List<LineMatch> uniqueLineMatches = lineMatches.stream()
+                            .collect(Collectors.groupingBy(LineMatch::getLineNumber))
+                            .values()
+                            .stream()
+                            .map(group -> group.get(0))
+                            .sorted((a, b) -> Integer.compare(a.getLineNumber(), b.getLineNumber()))
+                            .limit(10)
+                            .toList();
+
+                    return new SearchResult(
+                            file.getName(),
+                            file.getAbsolutePath(),
+                            uniqueSnippets.isEmpty() ? "File contains matching content"
+                                    : String.join("\n\n", uniqueSnippets),
+                            relevanceScore,
+                            "exact-match",
+                            uniqueLineMatches);
+                }
             }
 
-            // Check for individual terms
+            // PRIORITY 2: Check for individual terms only if no exact match
             for (String term : searchTerms) {
-                String termLower = term.toLowerCase();
-                long count = countOccurrencesInLines(lines, termLower);
+                String searchTerm = caseSensitive ? term : term.toLowerCase();
+                long count = countOccurrencesInLines(lines, searchTerm, caseSensitive);
                 if (count > 0) {
                     relevanceScore += count * getTermWeight(term, file);
-                    matchedSnippets.addAll(extractSnippets(content, term));
-                    lineMatches.addAll(findLineMatches(lines, term));
+                    matchedSnippets.addAll(extractSnippets(content, term, caseSensitive));
+                    lineMatches.addAll(findLineMatches(lines, term, caseSensitive));
                 }
             }
 
@@ -131,9 +167,26 @@ public class FileSearchService {
         return null;
     }
 
-    private List<String> extractSearchTerms(String query) {
-        // Simple tokenization - split on whitespace and common separators
-        return Arrays.stream(query.toLowerCase().split("[\\s,;.!?()\\[\\]{}\"']+"))
+    private List<String> extractSearchTerms(String query, boolean caseSensitive) {
+        // For code-like queries (containing dots, equals, quotes), prioritize exact matching
+        if (query.contains(".") || query.contains("=") || query.contains("\"") || query.contains("'")) {
+            // Return the original query as the primary term, plus some basic splitting
+            List<String> terms = new ArrayList<>();
+            terms.add(caseSensitive ? query : query.toLowerCase()); // Keep the exact query with case sensitivity
+            
+            // Also add some basic word splitting for fallback
+            String[] basicTerms = (caseSensitive ? query : query.toLowerCase()).split("[\\s,;!?()\\[\\]{}]+");
+            for (String term : basicTerms) {
+                if (term.length() > 2 && !isStopWord(term)) {
+                    terms.add(term);
+                }
+            }
+            return terms.stream().distinct().toList();
+        }
+        
+        // For regular queries, use standard tokenization
+        String processedQuery = caseSensitive ? query : query.toLowerCase();
+        return Arrays.stream(processedQuery.split("[\\s,;.!?()\\[\\]{}\"']+"))
                 .filter(term -> term.length() > 2) // Skip very short terms
                 .filter(term -> !isStopWord(term))
                 .distinct()
@@ -180,12 +233,14 @@ public class FileSearchService {
         return 1.0;
     }
 
-    private List<String> extractSnippets(String content, String term) {
+    private List<String> extractSnippets(String content, String term, boolean caseSensitive) {
         List<String> snippets = new ArrayList<>();
         String[] lines = content.split("\n");
+        String searchTerm = caseSensitive ? term : term.toLowerCase();
 
         for (int i = 0; i < lines.length; i++) {
-            if (lines[i].toLowerCase().contains(term.toLowerCase())) {
+            String searchLine = caseSensitive ? lines[i] : lines[i].toLowerCase();
+            if (searchLine.contains(searchTerm)) {
                 // Extract context around the match
                 int start = Math.max(0, i - 2);
                 int end = Math.min(lines.length, i + 3);
@@ -310,13 +365,14 @@ public class FileSearchService {
         }
     }
 
-    private List<LineMatch> findLineMatches(String[] lines, String term) {
+    private List<LineMatch> findLineMatches(String[] lines, String term, boolean caseSensitive) {
         List<LineMatch> matches = new ArrayList<>();
-        String termLower = term.toLowerCase();
+        String searchTerm = caseSensitive ? term : term.toLowerCase();
 
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i];
-            if (line.toLowerCase().contains(termLower)) {
+            String searchLine = caseSensitive ? line : line.toLowerCase();
+            if (searchLine.contains(searchTerm)) {
                 matches.add(new LineMatch(i + 1, line.trim(), term));
             }
         }
@@ -324,10 +380,12 @@ public class FileSearchService {
         return matches;
     }
 
-    private long countOccurrencesInLines(String[] lines, String term) {
+    private long countOccurrencesInLines(String[] lines, String term, boolean caseSensitive) {
         long count = 0;
+        String searchTerm = caseSensitive ? term : term.toLowerCase();
         for (String line : lines) {
-            count += countOccurrences(line.toLowerCase(), term);
+            String searchLine = caseSensitive ? line : line.toLowerCase();
+            count += countOccurrences(searchLine, searchTerm);
         }
         return count;
     }

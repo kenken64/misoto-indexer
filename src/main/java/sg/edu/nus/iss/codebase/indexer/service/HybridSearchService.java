@@ -75,6 +75,9 @@ public class HybridSearchService {
         suppressLogging();
 
         try {
+            // Enhance the query for better programming concept matching
+            String enhancedQuery = enhanceQueryForProgramming(query);
+            
             // Get the dynamic VectorStore for the current collection
             String currentCollection = indexingService.getCurrentCollectionName();
             String currentDirectory = indexingService.getCurrentIndexingDirectory();
@@ -92,7 +95,7 @@ public class HybridSearchService {
 
             VectorStore dynamicVectorStore = vectorStoreFactory.createVectorStore(currentCollection);
 
-            List<Document> documents = dynamicVectorStore.similaritySearch(query);
+            List<Document> documents = dynamicVectorStore.similaritySearch(enhancedQuery);
 
             System.out.println(
                     "🔍 Searching in collection: " + currentCollection + " (directory: " + currentDirectory + ")");
@@ -318,7 +321,13 @@ public class HybridSearchService {
 
     private List<FileSearchService.SearchResult> performTextSearch(SearchRequest request) {
         try {
-            return fileSearchService.searchInFiles(request.getQuery())
+            // Extract case sensitivity from filters if specified
+            boolean caseSensitive = false;
+            if (request.getFilters() != null && request.getFilters().containsKey("caseSensitive")) {
+                caseSensitive = Boolean.TRUE.equals(request.getFilters().get("caseSensitive"));
+            }
+            
+            return fileSearchService.searchInFiles(request.getQuery(), caseSensitive)
                     .stream()
                     .limit(request.getLimit())
                     .collect(Collectors.toList());
@@ -708,5 +717,29 @@ public class HybridSearchService {
         }
 
         return matches.stream().limit(5).collect(Collectors.toList()); // Limit to 5 matches per result
+    }
+
+    private String enhanceQueryForProgramming(String query) {
+        // Enhance queries for better programming concept matching
+        String enhancedQuery = query.toLowerCase();
+        
+        // Map common programming terms to more specific ones
+        if (enhancedQuery.contains("rest api") || enhancedQuery.contains("api endpoint")) {
+            enhancedQuery += " @app.route Flask route decorator HTTP endpoint web service API function";
+        }
+        
+        if (enhancedQuery.contains("endpoint")) {
+            enhancedQuery += " @app.route route decorator Flask web API";
+        }
+        
+        if (enhancedQuery.contains("database") && enhancedQuery.contains("repository")) {
+            enhancedQuery += " DAO data access object model entity";
+        }
+        
+        if (enhancedQuery.contains("authentication")) {
+            enhancedQuery += " login security auth user session token";
+        }
+        
+        return enhancedQuery;
     }
 }

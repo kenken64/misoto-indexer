@@ -67,7 +67,8 @@ class FileSearchServiceTest {
         assertThat(javaResult.getFileName()).isEqualTo("TestClass.java");
         assertThat(javaResult.getFilePath()).contains("TestClass.java");
         assertThat(javaResult.getContent()).contains("validation_split");
-        assertThat(javaResult.getSearchType()).isEqualTo("file-search");
+        // After our fix, exact matches return "exact-match" instead of "file-search"
+        assertThat(javaResult.getSearchType()).isEqualTo("exact-match");
         assertThat(javaResult.getRelevanceScore()).isGreaterThan(0);
     }
 
@@ -97,5 +98,47 @@ class FileSearchServiceTest {
 
         // Assert
         assertThat(results).isEmpty();
+    }
+
+    @Test
+    void searchInFiles_ShouldReturnExactMatchForCodeLikeQueries() throws IOException {
+        // Setup - Create a file with a specific code line
+        Path codeFile = tempDir.resolve("config.py");
+        Files.write(codeFile, List.of(
+            "# Configuration file",
+            "self.batch_size = 4",
+            "self.learning_rate = 2e-4",
+            "self.bnb_4bit_quant_type = \"nf4\"",
+            "self.use_4bit = True"
+        ));
+        
+        // Act - Search for exact code line
+        List<SearchResult> results = fileSearchService.searchInFiles("self.bnb_4bit_quant_type = \"nf4\"");
+        
+        // Assert
+        assertThat(results).isNotEmpty();
+        SearchResult result = results.get(0);
+        assertThat(result.getSearchType()).isEqualTo("exact-match");
+        assertThat(result.getRelevanceScore()).isGreaterThan(90.0); // Should have high relevance for exact match
+        assertThat(result.getLineMatches()).isNotEmpty();
+        assertThat(result.getLineMatches().get(0).getLineNumber()).isEqualTo(4); // Should find line 4
+    }
+
+    @Test
+    void searchInFiles_ShouldReturnFileSearchForTokenizedQueries() {
+        // Act - Search for a simple term that will be tokenized
+        List<SearchResult> results = fileSearchService.searchInFiles("TestClass");
+        
+        // Assert
+        assertThat(results).isNotEmpty();
+        SearchResult result = results.stream()
+            .filter(r -> r.getFileName().equals("TestClass.java"))
+            .findFirst()
+            .orElse(null);
+        
+        assertThat(result).isNotNull();
+        // For simple tokens that don't contain special characters, it should use file-search
+        // unless the exact term appears in the content
+        assertThat(result.getSearchType()).isIn("file-search", "exact-match");
     }
 }
