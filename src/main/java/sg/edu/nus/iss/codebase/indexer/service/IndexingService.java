@@ -31,6 +31,8 @@ package sg.edu.nus.iss.codebase.indexer.service;
 
 import org.springframework.ai.document.Document;
 import sg.edu.nus.iss.codebase.indexer.config.DynamicVectorStoreFactory;
+import sg.edu.nus.iss.codebase.indexer.service.CodeAnalysisService;
+import sg.edu.nus.iss.codebase.indexer.service.ProjectAnalysisService;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -60,6 +62,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 @Service
@@ -73,6 +76,12 @@ public class IndexingService {
 
     @Autowired
     private DynamicVectorStoreFactory vectorStoreFactory;
+
+    @Autowired
+    private CodeAnalysisService codeAnalysisService;
+
+    @Autowired
+    private ProjectAnalysisService projectAnalysisService;
 
     @Autowired
     @Qualifier("indexingExecutor")
@@ -310,6 +319,143 @@ public class IndexingService {
         clearIndexedFilesCache();
     }
 
+    /**
+     * Analyze project type and dependencies, then store in vector database
+     */
+    private void analyzeProjectAndDependencies() {
+        try {
+            System.out.println("\n🔍 ANALYZING PROJECT TYPE AND DEPENDENCIES");
+            System.out.println("==================================================");
+            
+            Path projectPath = Paths.get(indexingDirectory);
+            ProjectAnalysisService.ProjectAnalysis projectAnalysis = 
+                projectAnalysisService.analyzeProject(projectPath);
+            
+            System.out.println("📁 Project Type: " + projectAnalysis.getProjectType().getDisplayName());
+            System.out.println("📦 Dependencies found: " + projectAnalysis.getDependencies().size());
+            System.out.println("🛠️ Frameworks detected: " + projectAnalysis.getFrameworks().size());
+            
+            // Log detected frameworks
+            if (!projectAnalysis.getFrameworks().isEmpty()) {
+                System.out.println("🛠️ Frameworks: " + String.join(", ", projectAnalysis.getFrameworks()));
+            }
+            
+            // Log key dependencies
+            if (!projectAnalysis.getDependencies().isEmpty()) {
+                System.out.println("📦 Key Dependencies:");
+                projectAnalysis.getDependencies().stream()
+                    .limit(10) // Show first 10 dependencies
+                    .forEach(dep -> System.out.println("   - " + dep.getName() + " (" + dep.getLanguage() + ")"));
+                
+                if (projectAnalysis.getDependencies().size() > 10) {
+                    System.out.println("   ... and " + (projectAnalysis.getDependencies().size() - 10) + " more");
+                }
+            }
+            
+            // Create project analysis document for vector storage
+            createProjectAnalysisDocument(projectAnalysis);
+            
+            System.out.println("✅ Project analysis completed and stored");
+            System.out.println("==================================================");
+            
+        } catch (Exception e) {
+            System.err.println("❌ Error analyzing project: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Create and store project analysis document in vector database
+     */
+    private void createProjectAnalysisDocument(ProjectAnalysisService.ProjectAnalysis projectAnalysis) {
+        try {
+            // Create metadata for project analysis
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("documentType", "projectAnalysis");
+            metadata.put("projectType", projectAnalysis.getProjectType().name());
+            metadata.put("projectTypeName", projectAnalysis.getProjectType().getDisplayName());
+            metadata.put("projectPath", projectAnalysis.getProjectPath());
+            metadata.put("dependencyCount", String.valueOf(projectAnalysis.getDependencies().size()));
+            metadata.put("frameworkCount", String.valueOf(projectAnalysis.getFrameworks().size()));
+            metadata.put("collectionName", collectionName);
+            metadata.put("indexedAt", new java.util.Date().toString());
+            metadata.put("chunk", "project_analysis");
+            
+            // Add frameworks as comma-separated string for searchability
+            if (!projectAnalysis.getFrameworks().isEmpty()) {
+                metadata.put("frameworks", String.join(", ", projectAnalysis.getFrameworks()));
+            }
+            
+            // Create searchable content
+            String searchableContent = projectAnalysis.getSearchableSummary();
+            
+            // Create main project analysis document
+            Document projectDoc = new Document(searchableContent, metadata);
+            List<Document> documents = new ArrayList<>();
+            documents.add(projectDoc);
+            
+            // Create individual documents for each dependency by language
+            Map<String, List<ProjectAnalysisService.Dependency>> dependenciesByLanguage = 
+                projectAnalysis.getDependencies().stream()
+                    .collect(Collectors.groupingBy(ProjectAnalysisService.Dependency::getLanguage));
+            
+            for (Map.Entry<String, List<ProjectAnalysisService.Dependency>> entry : dependenciesByLanguage.entrySet()) {
+                String language = entry.getKey();
+                List<ProjectAnalysisService.Dependency> deps = entry.getValue();
+                
+                // Create dependency summary for this language
+                StringBuilder depContent = new StringBuilder();
+                depContent.append("Dependencies for ").append(language.toUpperCase()).append(" project:\n");
+                depContent.append("Project Type: ").append(projectAnalysis.getProjectType().getDisplayName()).append("\n");
+                depContent.append("Total ").append(language).append(" dependencies: ").append(deps.size()).append("\n\n");
+                
+                depContent.append("Libraries and frameworks:\n");
+                deps.forEach(dep -> depContent.append("- ").append(dep.getName())
+                    .append(" (version: ").append(dep.getVersion()).append(")\n"));
+                
+                // Create metadata for language-specific dependencies
+                Map<String, Object> depMetadata = new HashMap<>(metadata);
+                depMetadata.put("documentType", "dependencies");
+                depMetadata.put("language", language);
+                depMetadata.put("dependencyCount", String.valueOf(deps.size()));
+                depMetadata.put("chunk", language + "_dependencies");
+                
+                // Add dependency names for searchability
+                String dependencyNames = deps.stream()
+                    .map(ProjectAnalysisService.Dependency::getName)
+                    .collect(Collectors.joining(", "));
+                depMetadata.put("dependencyNames", dependencyNames);
+                
+                documents.add(new Document(depContent.toString(), depMetadata));
+            }
+            
+            // Store framework documentation as separate searchable documents
+            Map<String, String> frameworkDocs = projectAnalysis.getFrameworkDocumentation();
+            for (Map.Entry<String, String> entry : frameworkDocs.entrySet()) {
+                String framework = entry.getKey();
+                String documentation = entry.getValue();
+                
+                // Create metadata for framework documentation
+                Map<String, Object> frameworkMetadata = new HashMap<>(metadata);
+                frameworkMetadata.put("documentType", "frameworkDocumentation");
+                frameworkMetadata.put("framework", framework);
+                frameworkMetadata.put("chunk", framework.toLowerCase() + "_framework_docs");
+                
+                documents.add(new Document(documentation, frameworkMetadata));
+                System.out.println("📚 Stored " + framework + " framework documentation");
+            }
+            
+            // Store all project analysis documents
+            if (!documents.isEmpty()) {
+                vectorStore.add(documents);
+                System.out.println("📊 Stored project analysis: " + documents.size() + " documents");
+            }
+            
+        } catch (Exception e) {
+            System.err.println("❌ Error creating project analysis document: " + e.getMessage());
+        }
+    }
+
     public void startHybridIndexing() {
         if (indexingInProgress) {
             System.out.println("⚠️ Indexing already in progress");
@@ -318,6 +464,9 @@ public class IndexingService {
 
         indexingInProgress = true;
         startTime.set(System.currentTimeMillis());
+
+        // Analyze project type and dependencies first
+        analyzeProjectAndDependencies();
 
         // Start with priority files first
         indexPriorityFilesAsync();
@@ -624,11 +773,18 @@ public class IndexingService {
             if (file.getName().endsWith(".java") ||
                     file.getName().endsWith(".xml") ||
                     file.getName().endsWith(".properties") ||
-                    file.getName().endsWith(".md")) {
+                    file.getName().endsWith(".md") ||
+                    file.getName().endsWith(".py") ||
+                    file.getName().endsWith(".js") ||
+                    file.getName().endsWith(".ts")) {
 
                 // STEP 1a: Read raw text content from file
                 String content = Files.readString(file.toPath());
-                // STEP 1b: Create metadata for the document
+                
+                // STEP 1b: Analyze file with CodeAnalysisService for intelligent summarization
+                CodeAnalysisService.FileAnalysis analysis = codeAnalysisService.analyzeFile(file.toPath());
+                
+                // STEP 1c: Create metadata for the document
                 Map<String, Object> metadata = new HashMap<>();
                 metadata.put("filename", file.getName());
                 metadata.put("filepath", file.getAbsolutePath());
@@ -639,30 +795,105 @@ public class IndexingService {
                 metadata.put("lastModifiedDate", new java.util.Date(file.lastModified()).toString());
                 metadata.put("collectionName", collectionName);
                 metadata.put("indexedAt", new java.util.Date().toString());
+                
+                // Add analysis-based metadata
+                metadata.put("restApiEndpointCount", String.valueOf(analysis.getRestApiEndpoints().size()));
+                metadata.put("functionCount", String.valueOf(analysis.getFunctions().size()));
+                metadata.put("classCount", String.valueOf(analysis.getClasses().size()));
 
-                // STEP 1c: Split large files into manageable chunks
-                // Each chunk will be processed through: Text → nomic-embed-text → Vector →
-                // Qdrant
                 List<Document> documents = new ArrayList<>();
-                if (content.length() > 4000) {
-                    List<String> chunks = splitIntoChunks(content, 3000, 500); // 3000 chars with 500 overlap
+                
+                // STEP 1d: Create a main summary document for semantic search
+                String searchableSummary = analysis.getSearchableSummary();
+                if (!searchableSummary.trim().isEmpty()) {
+                    Map<String, Object> summaryMetadata = new HashMap<>(metadata);
+                    summaryMetadata.put("documentType", "summary");
+                    summaryMetadata.put("chunk", "summary");
+                    documents.add(new Document(searchableSummary, summaryMetadata));
+                }
+                
+                // STEP 1e: Create specific documents for REST API endpoints (high priority for search)
+                for (CodeAnalysisService.CodeElement endpoint : analysis.getRestApiEndpoints()) {
+                    Map<String, Object> endpointMetadata = new HashMap<>(metadata);
+                    endpointMetadata.put("documentType", "restApiEndpoint");
+                    endpointMetadata.put("lineNumber", String.valueOf(endpoint.getLineNumber()));
+                    endpointMetadata.put("endpointName", endpoint.getName());
+                    endpointMetadata.put("chunk", "endpoint_" + endpoint.getLineNumber());
+                    
+                    String endpointContent = String.format(
+                        "REST API Endpoint: %s\nLine %d: %s\n\nContext:\n%s",
+                        endpoint.getName(),
+                        endpoint.getLineNumber(),
+                        endpoint.getCode(),
+                        endpoint.getContext()
+                    );
+                    documents.add(new Document(endpointContent, endpointMetadata));
+                }
+                
+                // STEP 1f: Create documents for functions with context
+                for (CodeAnalysisService.CodeElement function : analysis.getFunctions()) {
+                    Map<String, Object> functionMetadata = new HashMap<>(metadata);
+                    functionMetadata.put("documentType", "function");
+                    functionMetadata.put("lineNumber", String.valueOf(function.getLineNumber()));
+                    functionMetadata.put("functionName", function.getName());
+                    functionMetadata.put("chunk", "function_" + function.getLineNumber());
+                    
+                    String functionContent = String.format(
+                        "Function: %s\nLine %d: %s\n\nContext:\n%s",
+                        function.getName(),
+                        function.getLineNumber(),
+                        function.getCode(),
+                        function.getContext()
+                    );
+                    documents.add(new Document(functionContent, functionMetadata));
+                }
+                
+                // STEP 1g: Create documents for classes with context
+                for (CodeAnalysisService.CodeElement cls : analysis.getClasses()) {
+                    Map<String, Object> classMetadata = new HashMap<>(metadata);
+                    classMetadata.put("documentType", "class");
+                    classMetadata.put("lineNumber", String.valueOf(cls.getLineNumber()));
+                    classMetadata.put("className", cls.getName());
+                    classMetadata.put("chunk", "class_" + cls.getLineNumber());
+                    
+                    String classContent = String.format(
+                        "Class: %s\nLine %d: %s\n\nContext:\n%s",
+                        cls.getName(),
+                        cls.getLineNumber(),
+                        cls.getCode(),
+                        cls.getContext()
+                    );
+                    documents.add(new Document(classContent, classMetadata));
+                }
+                
+                // STEP 1h: For large files, still create traditional chunks as fallback
+                if (content.length() > 4000 && documents.size() < 3) {
+                    List<String> chunks = splitIntoChunks(content, 3000, 500);
                     for (int i = 0; i < chunks.size(); i++) {
                         Map<String, Object> chunkMetadata = new HashMap<>(metadata);
-                        chunkMetadata.put("chunk", String.valueOf(i + 1));
+                        chunkMetadata.put("documentType", "chunk");
+                        chunkMetadata.put("chunk", "fallback_" + (i + 1));
                         chunkMetadata.put("total_chunks", String.valueOf(chunks.size()));
-                        // Create Document with raw text - ready for embedding pipeline
                         documents.add(new Document(chunks.get(i), chunkMetadata));
                     }
-                } else {
-                    // Create Document with raw text - ready for embedding pipeline
-                    documents.add(new Document(content, metadata));
+                } else if (documents.isEmpty()) {
+                    // For small files without specific code elements, create a single document
+                    Map<String, Object> contentMetadata = new HashMap<>(metadata);
+                    contentMetadata.put("documentType", "content");
+                    contentMetadata.put("chunk", "full");
+                    documents.add(new Document(content, contentMetadata));
                 }
+
+                System.out.println("📄 Analyzed " + file.getName() + " - Created " + documents.size() + 
+                    " documents (" + analysis.getRestApiEndpoints().size() + " endpoints, " + 
+                    analysis.getFunctions().size() + " functions, " + analysis.getClasses().size() + " classes)");
 
                 return documents;
             }
 
         } catch (Exception e) {
             System.err.println("❌ Error creating document for " + file.getName() + ": " + e.getMessage());
+            e.printStackTrace();
         }
 
         return List.of();

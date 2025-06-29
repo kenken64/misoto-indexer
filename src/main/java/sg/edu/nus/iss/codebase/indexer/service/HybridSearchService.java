@@ -75,17 +75,167 @@ public class HybridSearchService {
         suppressLogging();
 
         try {
-            // Enhance the query for better programming concept matching
-            String enhancedQuery = enhanceQueryForProgramming(query);
+            // Stage 1: Intelligent Framework Analysis using Ollama
+            String intelligentQuery = performIntelligentQueryAnalysis(query);
             
+            // Stage 2: Use the enhanced query for vector search
+            List<Document> documents = searchVectorStore(intelligentQuery, maxResults);
+            
+            List<SearchResult> results = new ArrayList<>();
+            for (Document doc : documents) {
+                SearchResult result = convertToSearchResultWithScore(doc, query);
+                results.add(result);
+            }
+            
+            // Limit results to maxResults
+            return results.stream()
+                .limit(maxResults)
+                .collect(Collectors.toList());
+            
+        } catch (Exception e) {
+            System.err.println("❌ Vector search error: " + e.getMessage());
+            return new ArrayList<>();
+        } finally {
+            // Restore normal logging
+            restoreLogging();
+        }
+    }
+
+    /**
+     * Stage 1: Use Ollama to analyze the search query and identify relevant frameworks and terms
+     */
+    private String performIntelligentQueryAnalysis(String originalQuery) {
+        try {
+            String analysisPrompt = createQueryAnalysisPrompt(originalQuery);
+            String ollamaResponse = chatModel.call(analysisPrompt);
+            
+            if (ollamaResponse != null && !ollamaResponse.trim().isEmpty()) {
+                String enhancedQuery = parseFrameworkAnalysisResponse(ollamaResponse, originalQuery);
+                System.out.println("🧠 Intelligent query analysis:");
+                System.out.println("   Original: \"" + originalQuery + "\"");
+                System.out.println("   Enhanced: \"" + enhancedQuery + "\"");
+                return enhancedQuery;
+            }
+        } catch (Exception e) {
+            System.err.println("❌ Error in intelligent query analysis: " + e.getMessage());
+        }
+        
+        // Fallback to basic enhancement if Ollama fails
+        return enhanceQueryForProgramming(originalQuery);
+    }
+
+    /**
+     * Create a prompt to analyze the search query and identify relevant frameworks
+     */
+    private String createQueryAnalysisPrompt(String query) {
+        return String.format("""
+            You are an expert software architect analyzing a code search query. Your task is to identify relevant frameworks and suggest specific syntax patterns that should be searched.
+            
+            SEARCH QUERY: "%s"
+            
+            Please analyze this query and provide:
+            1. FRAMEWORKS that are most relevant to this query
+            2. SPECIFIC SYNTAX/PATTERNS the user is likely looking for
+            3. RELATED CONCEPTS that should be included in the search
+            
+            Consider these framework patterns and their syntax:
+            
+            REST API ENDPOINTS:
+            - Flask: @app.route('/path'), @app.route('/path', methods=['POST']), def function_name():
+            - Spring Boot: @RestController, @GetMapping("/path"), @PostMapping("/path"), @RequestMapping
+            - Express.js: app.get('/path', handler), app.post('/path', handler), router.use()
+            - Django: urlpatterns, path('', view), def view(request):
+            
+            DATABASE ACCESS:
+            - Flask-SQLAlchemy: db.Model, db.Column, db.relationship, query.filter()
+            - Spring Data JPA: @Repository, @Entity, findBy, @Query
+            - Mongoose: Schema, model, find(), save()
+            
+            AUTHENTICATION/SECURITY:
+            - Flask: session, login_required, @login_required
+            - Spring Security: @PreAuthorize, @Secured, SecurityConfig
+            - JWT: token, authenticate, authorize
+            
+            TESTING FRAMEWORKS:
+            - pytest: def test_, assert, fixture, @pytest.mark
+            - JUnit: @Test, @Before, @After, assertEquals
+            - Jest: test(), expect(), beforeEach()
+            
+            FRONTEND FRAMEWORKS:
+            - React: useState, useEffect, componentDidMount, JSX
+            - Vue: v-model, v-for, computed, methods
+            - Angular: ngFor, ngIf, @Component, @Injectable
+            
+            Based on the search query, identify:
+            1. Which frameworks are most relevant
+            2. What specific syntax patterns the user is likely searching for
+            3. What additional concepts should be included
+            
+            Format your response as:
+            FRAMEWORKS: [comma-separated list of relevant frameworks]
+            SYNTAX: [specific syntax patterns to search for, separated by commas]
+            CONCEPTS: [related programming concepts, separated by commas]
+            SEARCH_TERMS: [additional specific search terms that will help find relevant code]
+            
+            Example:
+            For query "REST API endpoints":
+            FRAMEWORKS: Flask, Spring Boot, Express.js
+            SYNTAX: @app.route, @GetMapping, @PostMapping, @RequestMapping, app.get, app.post
+            CONCEPTS: HTTP methods, route decorators, endpoint functions, API handlers
+            SEARCH_TERMS: route, endpoint, API, HTTP, GET, POST, PUT, DELETE, handler
+            
+            Focus on the most likely frameworks and syntax based on the query intent.
+            """, query);
+    }
+
+    /**
+     * Parse Ollama's analysis response and construct enhanced search query
+     */
+    private String parseFrameworkAnalysisResponse(String response, String originalQuery) {
+        StringBuilder enhancedQuery = new StringBuilder(originalQuery);
+        
+        String[] lines = response.split("\n");
+        
+        for (String line : lines) {
+            line = line.trim();
+            if (line.startsWith("FRAMEWORKS:")) {
+                String frameworks = line.replace("FRAMEWORKS:", "").trim();
+                if (!frameworks.isEmpty()) {
+                    enhancedQuery.append(" ").append(frameworks);
+                }
+            } else if (line.startsWith("SYNTAX:")) {
+                String syntax = line.replace("SYNTAX:", "").trim();
+                if (!syntax.isEmpty()) {
+                    enhancedQuery.append(" ").append(syntax);
+                }
+            } else if (line.startsWith("CONCEPTS:")) {
+                String concepts = line.replace("CONCEPTS:", "").trim();
+                if (!concepts.isEmpty()) {
+                    enhancedQuery.append(" ").append(concepts);
+                }
+            } else if (line.startsWith("SEARCH_TERMS:")) {
+                String searchTerms = line.replace("SEARCH_TERMS:", "").trim();
+                if (!searchTerms.isEmpty()) {
+                    enhancedQuery.append(" ").append(searchTerms);
+                }
+            }
+        }
+        
+        return enhancedQuery.toString();
+    }
+
+    /**
+     * Search the vector store with the enhanced query
+     */
+    private List<Document> searchVectorStore(String query, int maxResults) {
+        try {
             // Get the dynamic VectorStore for the current collection
             String currentCollection = indexingService.getCurrentCollectionName();
             String currentDirectory = indexingService.getCurrentIndexingDirectory();
 
             // Check if a directory has been indexed (not using default collection)
             if ("codebase-index".equals(currentCollection) || currentDirectory == null) {
-                System.out
-                        .println("⚠️ No specific directory indexed yet. Please index a codebase first using option 6.");
+                System.out.println("⚠️ No specific directory indexed yet. Please index a codebase first using option 6.");
                 System.out.println("💡 Current collection: " + currentCollection);
                 if (currentDirectory == null) {
                     System.out.println("💡 No indexing directory set. Use 'Index Codebase' to set a directory.");
@@ -94,26 +244,21 @@ public class HybridSearchService {
             }
 
             VectorStore dynamicVectorStore = vectorStoreFactory.createVectorStore(currentCollection);
+            
+            // Perform similarity search
+            List<Document> documents = dynamicVectorStore.similaritySearch(query);
 
-            List<Document> documents = dynamicVectorStore.similaritySearch(enhancedQuery);
+            System.out.println("🔍 Searching in collection: " + currentCollection + " (directory: " + currentDirectory + ")");
+            System.out.println("📊 Found " + documents.size() + " potential matches");
 
-            System.out.println(
-                    "🔍 Searching in collection: " + currentCollection + " (directory: " + currentDirectory + ")");
-
-            return documents.stream()
-                    .limit(maxResults)
-                    .map(this::convertToSearchResult)
-                    .collect(Collectors.toList());
-
+            return documents;
+            
         } catch (Exception e) {
             // Only log non-gRPC related errors
             if (!isGrpcRelatedError(e)) {
-                System.err.println("❌ Vector search failed: " + e.getMessage());
+                System.err.println("❌ Vector store search error: " + e.getMessage());
             }
-            return List.of();
-        } finally {
-            // Restore normal logging
-            restoreLogging();
+            return new ArrayList<>();
         }
     }
 
@@ -160,8 +305,39 @@ public class HybridSearchService {
         metadata.put("collectionName", currentCollection);
 
         String content = document.getText();
-        // Extract line matches for display (using empty query as this is vector search)
+        
+        // Extract line number from metadata if available
+        String lineNumberStr = (String) metadata.get("lineNumber");
         List<FileSearchService.LineMatch> lineMatches = new ArrayList<>();
+        
+        if (lineNumberStr != null && !lineNumberStr.isEmpty()) {
+            try {
+                int lineNumber = Integer.parseInt(lineNumberStr);
+                String documentType = (String) metadata.getOrDefault("documentType", "");
+                String elementName = "";
+                
+                switch (documentType) {
+                    case "restApiEndpoint":
+                        elementName = (String) metadata.getOrDefault("endpointName", "");
+                        break;
+                    case "function":
+                        elementName = (String) metadata.getOrDefault("functionName", "");
+                        break;
+                    case "class":
+                        elementName = (String) metadata.getOrDefault("className", "");
+                        break;
+                }
+                
+                if (!elementName.isEmpty()) {
+                    // Extract the main line from content for display
+                    String[] lines = content.split("\n");
+                    String mainLine = lines.length > 2 ? lines[1] : content; // Usually line 1 contains the main definition
+                    lineMatches.add(new FileSearchService.LineMatch(lineNumber, mainLine, elementName));
+                }
+            } catch (NumberFormatException e) {
+                // Ignore invalid line numbers
+            }
+        }
 
         return new SearchResult(
                 (String) metadata.getOrDefault("filename", "Unknown file"),
@@ -171,6 +347,132 @@ public class HybridSearchService {
                 "vector-search",
                 metadata,
                 lineMatches);
+    }
+
+    /**
+     * Compare search results for sorting - prioritize based on document type and query relevance
+     */
+    private int compareSearchResults(SearchResult a, SearchResult b, String query) {
+        String queryLower = query.toLowerCase();
+        
+        // Get document types
+        String typeA = (String) a.getMetadata().getOrDefault("documentType", "");
+        String typeB = (String) b.getMetadata().getOrDefault("documentType", "");
+        
+        // Priority scoring for document types based on query
+        int scoreA = getDocumentTypeScore(typeA, queryLower);
+        int scoreB = getDocumentTypeScore(typeB, queryLower);
+        
+        if (scoreA != scoreB) {
+            return Integer.compare(scoreB, scoreA); // Higher score first
+        }
+        
+        // If same document type, compare by line number (lower line numbers usually more important)
+        String lineA = (String) a.getMetadata().get("lineNumber");
+        String lineB = (String) b.getMetadata().get("lineNumber");
+        
+        if (lineA != null && lineB != null) {
+            try {
+                return Integer.compare(Integer.parseInt(lineA), Integer.parseInt(lineB));
+            } catch (NumberFormatException e) {
+                // Ignore and continue to next comparison
+            }
+        }
+        
+        // Finally, compare by filename
+        return a.getFileName().compareTo(b.getFileName());
+    }
+
+    /**
+     * Score document types based on query relevance
+     */
+    private int getDocumentTypeScore(String documentType, String queryLower) {
+        // Handle project analysis and dependency queries
+        if (queryLower.contains("project type") || queryLower.contains("framework") || queryLower.contains("technology")) {
+            switch (documentType) {
+                case "projectAnalysis": return 100;
+                case "frameworkDocumentation": return 90;
+                case "dependencies": return 80;
+                case "summary": return 60;
+                default: return 10;
+            }
+        }
+        
+        if (queryLower.contains("dependency") || queryLower.contains("library") || queryLower.contains("package")) {
+            switch (documentType) {
+                case "dependencies": return 100;
+                case "projectAnalysis": return 80;
+                case "frameworkDocumentation": return 60;
+                case "summary": return 40;
+                default: return 10;
+            }
+        }
+        
+        // Framework-specific syntax queries (like @app.route, @RequestMapping)
+        if (queryLower.contains("@") && (queryLower.contains("app.route") || queryLower.contains("route") 
+            || queryLower.contains("mapping") || queryLower.contains("get") || queryLower.contains("post"))) {
+            switch (documentType) {
+                case "frameworkDocumentation": return 100;
+                case "restApiEndpoint": return 90;
+                case "function": return 60;
+                case "summary": return 40;
+                default: return 10;
+            }
+        }
+        
+        if (queryLower.contains("flask") || queryLower.contains("spring")) {
+            switch (documentType) {
+                case "frameworkDocumentation": return 100;
+                case "projectAnalysis": return 80;
+                case "restApiEndpoint": return 70;
+                case "function": return 60;
+                default: return 20;
+            }
+        }
+        
+        if (queryLower.contains("rest api") || queryLower.contains("endpoint") || queryLower.contains("route")) {
+            switch (documentType) {
+                case "restApiEndpoint": return 100;
+                case "frameworkDocumentation": return 90;
+                case "function": return 60;
+                case "summary": return 40;
+                case "projectAnalysis": return 30;
+                case "class": return 20;
+                default: return 10;
+            }
+        }
+        
+        if (queryLower.contains("function") || queryLower.contains("method")) {
+            switch (documentType) {
+                case "function": return 100;
+                case "restApiEndpoint": return 80;
+                case "class": return 40;
+                case "summary": return 30;
+                default: return 10;
+            }
+        }
+        
+        if (queryLower.contains("class") || queryLower.contains("service")) {
+            switch (documentType) {
+                case "class": return 100;
+                case "function": return 60;
+                case "summary": return 50;
+                case "restApiEndpoint": return 30;
+                default: return 10;
+            }
+        }
+        
+        // Default scoring when query doesn't match specific patterns
+        switch (documentType) {
+            case "projectAnalysis": return 85;
+            case "summary": return 80;
+            case "frameworkDocumentation": return 75;
+            case "restApiEndpoint": return 70;
+            case "dependencies": return 65;
+            case "function": return 60;
+            case "class": return 50;
+            default: return 30;
+        }
     }
 
     private String generateAIAnalysis(String query, List<SearchResult> vectorResults,
@@ -720,25 +1022,94 @@ public class HybridSearchService {
     }
 
     private String enhanceQueryForProgramming(String query) {
-        // Enhance queries for better programming concept matching
+        // Enhanced fallback query expansion for better programming concept matching
         String enhancedQuery = query.toLowerCase();
+        String originalQuery = query; // Keep original case for certain patterns
         
-        // Map common programming terms to more specific ones
-        if (enhancedQuery.contains("rest api") || enhancedQuery.contains("api endpoint")) {
+        // REST API and endpoint patterns - most comprehensive
+        if (enhancedQuery.contains("rest api") || enhancedQuery.contains("api endpoint") || 
+            enhancedQuery.contains("endpoints") || enhancedQuery.contains("api") || 
+            enhancedQuery.contains("endpoint")) {
             enhancedQuery += " @app.route Flask route decorator HTTP endpoint web service API function";
+            enhancedQuery += " @RequestMapping @GetMapping @PostMapping Spring Boot controller";
+            enhancedQuery += " app.get app.post Express.js router endpoint handler";
+            enhancedQuery += " GET POST PUT DELETE HTTP methods REST";
         }
         
-        if (enhancedQuery.contains("endpoint")) {
-            enhancedQuery += " @app.route route decorator Flask web API";
+        // Framework-specific syntax patterns
+        if (enhancedQuery.contains("@app.route") || enhancedQuery.contains("app.route")) {
+            enhancedQuery += " Flask endpoint decorator route function HTTP API framework documentation";
+            enhancedQuery += " methods=['GET'] methods=['POST'] Flask routing patterns";
         }
         
-        if (enhancedQuery.contains("database") && enhancedQuery.contains("repository")) {
-            enhancedQuery += " DAO data access object model entity";
+        if (enhancedQuery.contains("flask")) {
+            enhancedQuery += " @app.route endpoint decorator route function render_template jsonify request";
+            enhancedQuery += " Flask-SQLAlchemy db.Model app.run framework documentation";
         }
         
-        if (enhancedQuery.contains("authentication")) {
-            enhancedQuery += " login security auth user session token";
+        if (enhancedQuery.contains("spring boot") || enhancedQuery.contains("spring")) {
+            enhancedQuery += " @RestController @RequestMapping @GetMapping @PostMapping controller";
+            enhancedQuery += " @Service @Repository @Autowired annotation framework documentation";
         }
+        
+        // Database and ORM patterns
+        if (enhancedQuery.contains("database") || enhancedQuery.contains("orm") || 
+            enhancedQuery.contains("model") || enhancedQuery.contains("entity")) {
+            enhancedQuery += " db.Model SQLAlchemy @Entity JPA @Repository";
+            enhancedQuery += " query filter findBy save database framework";
+        }
+        
+        // Authentication and security
+        if (enhancedQuery.contains("auth") || enhancedQuery.contains("login") || 
+            enhancedQuery.contains("security") || enhancedQuery.contains("session")) {
+            enhancedQuery += " @login_required session authentication security JWT token";
+            enhancedQuery += " @PreAuthorize @Secured Spring Security framework";
+        }
+        
+        // Project type and dependency analysis
+        if (enhancedQuery.contains("project type") || enhancedQuery.contains("technology stack") ||
+            enhancedQuery.contains("framework") || enhancedQuery.contains("dependencies")) {
+            enhancedQuery += " framework library dependency python java javascript spring flask";
+            enhancedQuery += " requirements.txt pom.xml package.json project analysis";
+        }
+        
+        if (enhancedQuery.contains("dependency") || enhancedQuery.contains("library") ||
+            enhancedQuery.contains("package")) {
+            enhancedQuery += " package framework requirements.txt pom.xml package.json import";
+            enhancedQuery += " maven gradle npm pip dependency management";
+        }
+        
+        // Programming language specific enhancements
+        if (enhancedQuery.contains("python")) {
+            enhancedQuery += " flask django requirements.txt pip import package library";
+            enhancedQuery += " @app.route def function python framework";
+        }
+        
+        if (enhancedQuery.contains("java")) {
+            enhancedQuery += " spring maven gradle pom.xml dependency jar library framework";
+            enhancedQuery += " @RestController @Service @Repository annotation";
+        }
+        
+        if (enhancedQuery.contains("javascript") || enhancedQuery.contains("node")) {
+            enhancedQuery += " npm package.json express react vue angular library";
+            enhancedQuery += " app.get app.post router middleware framework";
+        }
+        
+        // Testing frameworks
+        if (enhancedQuery.contains("test") || enhancedQuery.contains("testing")) {
+            enhancedQuery += " pytest @Test unittest JUnit Jest test framework";
+            enhancedQuery += " def test_ assert expect() beforeEach()";
+        }
+        
+        // Frontend frameworks
+        if (enhancedQuery.contains("react") || enhancedQuery.contains("frontend") || 
+            enhancedQuery.contains("component")) {
+            enhancedQuery += " useState useEffect componentDidMount JSX React framework";
+            enhancedQuery += " v-model Vue @Component Angular frontend";
+        }
+        
+        // Add framework documentation search terms
+        enhancedQuery += " framework documentation syntax pattern";
         
         return enhancedQuery;
     }
