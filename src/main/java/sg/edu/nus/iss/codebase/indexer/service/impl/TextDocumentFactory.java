@@ -55,9 +55,17 @@ public class TextDocumentFactory implements DocumentFactory {
                     Map<String, Object> chunkMetadata = new HashMap<>(metadata);
                     chunkMetadata.put("chunk", String.valueOf(i + 1));
                     chunkMetadata.put("total_chunks", String.valueOf(chunks.size()));
+                    // CRITICAL FIX: Ensure text field is explicitly set in metadata
+                    // This addresses issue where content was in doc_content but not in text field
+                    chunkMetadata.put("text", chunks.get(i));
+                    chunkMetadata.put("doc_content", chunks.get(i)); // Keep as backup
                     documents.add(new Document(chunks.get(i), chunkMetadata));
                 }
             } else {
+                // CRITICAL FIX: Ensure text field is explicitly set in metadata
+                // This addresses issue where content was in doc_content but not in text field  
+                metadata.put("text", content);
+                metadata.put("doc_content", content); // Keep as backup
                 documents.add(new Document(content, metadata));
             }
 

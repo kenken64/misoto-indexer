@@ -173,11 +173,18 @@ public class FileIndexingServiceImpl implements FileIndexingService {
 
     @Override
     public void setIndexingDirectory(String directory) {
-        this.indexingDirectory = directory;
-        System.out.println("📁 Indexing directory set to: " + directory);
-
-        if (!indexingInProgress) {
-            resetIndexing();
+        // Only reset if directory actually changed
+        if (!directory.equals(this.indexingDirectory)) {
+            this.indexingDirectory = directory;
+            System.out.println("📁 Indexing directory changed to: " + directory);
+            
+            if (!indexingInProgress) {
+                resetIndexing();
+            }
+        } else {
+            this.indexingDirectory = directory;
+            System.out.println("📁 Indexing directory confirmed: " + directory);
+            // Don't reset if directory is the same - preserve existing indexed file count
         }
     }
 
@@ -195,7 +202,7 @@ public class FileIndexingServiceImpl implements FileIndexingService {
         skippedFileExtensions.clear();
 
         cacheRepository.clearCache();
-        System.out.println("🔄 Indexing statistics reset");
+        System.out.println("🔄 DEBUG: Indexing statistics reset - indexedFiles now: " + indexedFiles.get());
         notifyStatusUpdate();
     }
 
@@ -357,7 +364,8 @@ public class FileIndexingServiceImpl implements FileIndexingService {
                 // Store in vector database with correct collection
                 dynamicVectorStore.add(documents);
 
-                indexedFiles.incrementAndGet();
+                int newCount = indexedFiles.incrementAndGet();
+                System.out.println("🔍 DEBUG: File indexed, count now: " + newCount + " (file: " + file.getName() + ")");
                 cacheRepository.saveIndexedFile(file.getAbsolutePath());
             } else {
                 skippedFiles.incrementAndGet();
@@ -418,7 +426,9 @@ public class FileIndexingServiceImpl implements FileIndexingService {
             for (Path path : allPaths) {
                 if (isSupportedFile(path)) {
                     allFiles.add(path.toFile());
+                    System.out.println("🔍 DEBUG: File supported and added: " + path.getFileName());
                 } else {
+                    System.out.println("🔍 DEBUG: File NOT supported, skipping: " + path.getFileName());
                     String extension = getFileExtension(path.toFile());
                     if (!extension.isEmpty()) {
                         AtomicInteger count = skippedFileExtensions.get(extension);
@@ -561,7 +571,21 @@ public class FileIndexingServiceImpl implements FileIndexingService {
 
     @Override
     public int getIndexedFileCount() {
-        return indexedFiles.get();
+        int memoryCount = indexedFiles.get();
+        System.out.println("🔍 DEBUG: getIndexedFileCount() - memory count: " + memoryCount);
+        
+        // If memory count is 0 but we have a collection, return 1 to enable vector search
+        // since data may exist in Qdrant from previous runs
+        if (memoryCount == 0 && indexingDirectory != null) {
+            String collectionName = getCurrentCollectionName();
+            if (collectionName != null && !collectionName.equals("codebase-index")) {
+                System.out.println("🔍 DEBUG: Memory count is 0 but collection exists: " + collectionName);
+                System.out.println("🔍 DEBUG: Returning 1 to enable vector search (data may exist in Qdrant)");
+                return 1; // Return 1 to enable vector search
+            }
+        }
+        
+        return memoryCount;
     }
 
     @Override

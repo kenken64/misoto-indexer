@@ -1,0 +1,426 @@
+<div class="app-container">
+  <!-- Dashboard Header -->
+  <app-header [subtitle]="'header.dashboard.subtitle' | translate"></app-header>
+
+  <!-- Main Form View -->
+  <div *ngIf="currentView === 'form'" class="main-content">
+    <mat-stepper>
+  <mat-step label="Step 1" state="phone">
+    <div class="step-content">
+      <!-- Custom File Input Container with Drag & Drop -->
+      <div class="file-input-container">
+        <label for="pdf-file-input" class="file-input-label">
+          {{ 'dashboard.file.select' | translate }}
+        </label>
+        
+        <!-- Drag & Drop Zone -->
+        <div class="drag-drop-zone" 
+             [class.drag-over]="isDragOver"
+             (dragover)="onDragOver($event)"
+             (dragleave)="onDragLeave($event)"
+             (drop)="onDrop($event)">
+          
+          <div class="file-input-wrapper" 
+               [class.has-file]="selectedFile">
+            <input #fileInput
+                   id="pdf-file-input"
+                   type="file" 
+                   (change)="onFileSelected($event)" 
+                   accept="application/pdf" />
+            <button type="button" 
+                    mat-stroked-button 
+                    class="file-select-button"
+                    [class.has-file]="selectedFile"
+                    (click)="fileInput.click()">
+              <mat-icon>
+                {{ selectedFile ? 'check_circle' : 'attach_file' }}
+              </mat-icon>
+              {{ selectedFile ? selectedFile.name : 'Choose PDF file...' }}
+              <span *ngIf="selectedFile" class="file-size-info">
+                ({{ (selectedFile.size / 1024 / 1024).toFixed(2) }} MB)
+              </span>
+            </button>
+          </div>
+          
+          <!-- Drag & Drop Instructions -->
+          <p *ngIf="!selectedFile" class="drag-drop-instructions">
+            <mat-icon>cloud_upload</mat-icon>
+            <span>{{ 'dashboard.drag.drop' | translate }}</span>
+          </p>
+        </div>
+        
+        <mat-hint class="file-hint">
+          {{ 'dashboard.file.hint' | translate }}
+        </mat-hint>
+      </div>
+      
+      <!-- File Selection Status -->
+      <div *ngIf="selectedFile" class="file-status">
+        <mat-icon style="color: #4caf50; margin-right: 8px;">check_circle</mat-icon>
+        <span>
+          <strong>{{ 'dashboard.file.selected' | translate }}</strong> {{ selectedFile!.name }}
+          <span style="color: #666;">({{ (selectedFile!.size / 1024 / 1024).toFixed(2) }} MB)</span>
+        </span>
+      </div>
+      
+      <!-- No File Selected Warning -->
+      <div *ngIf="!selectedFile" class="no-file-warning">
+        <mat-icon style="color: #ff9800; margin-right: 8px;">warning</mat-icon>
+        <span>Please select a PDF file before proceeding to the next step.</span>
+      </div>
+      
+      <!-- Upload Message -->
+      <div *ngIf="uploadMessage" class="upload-message">
+        <p>{{ uploadMessage }}</p>
+      </div>
+      
+      <!-- PDF Metadata Information -->
+      <div *ngIf="pdfMetadata" class="pdf-metadata-info">
+        <mat-card class="metadata-card">
+          <mat-card-header>
+            <mat-icon mat-card-avatar style="color: #4caf50;">fingerprint</mat-icon>
+            <mat-card-title>PDF Fingerprint Generated</mat-card-title>
+            <mat-card-subtitle>Unique identification for this PDF document</mat-card-subtitle>
+          </mat-card-header>
+          <mat-card-content>
+            <div class="metadata-details">
+              <div *ngIf="pdfMetadata.title" class="metadata-item">
+                <strong>Title:</strong> {{ pdfMetadata.title }}
+              </div>
+              <div *ngIf="pdfMetadata.creator" class="metadata-item">
+                <strong>Creator:</strong> {{ pdfMetadata.creator }}
+              </div>
+              <div class="metadata-item">
+                <strong>Pages:</strong> {{ pdfMetadata.page_count }}
+              </div>
+              <div class="metadata-item">
+                <strong>Short ID:</strong> 
+                <code class="fingerprint-code">{{ pdfMetadata.hashes.short_id }}</code>
+              </div>
+            </div>
+          </mat-card-content>
+        </mat-card>
+      </div>
+      
+      <!-- Next Button with Validation -->
+      <div class="upload-button">
+        <button mat-raised-button 
+                color="primary"
+                matStepperNext 
+                (click)="uploadPdf()"
+                [disabled]="!selectedFile || isUploadingPdf">
+          <mat-spinner *ngIf="isUploadingPdf" diameter="20"></mat-spinner>
+          <mat-icon *ngIf="!isUploadingPdf">cloud_upload</mat-icon>
+          {{ isUploadingPdf ? 'Uploading...' : 'Upload & Continue' }}
+        </button>
+      </div>
+      
+      <!-- Disabled State Helper Text -->
+      <p *ngIf="!selectedFile && !isUploadingPdf" class="helper-text">
+        <mat-icon>info</mat-icon>
+        The button will be enabled once you select a PDF file.
+      </p>
+      
+      <!-- Upload Progress Text -->
+      <p *ngIf="isUploadingPdf" class="helper-text">
+        <mat-icon>cloud_upload</mat-icon>
+        Please wait while your PDF is being processed...
+      </p>
+    </div>
+  </mat-step>
+  <mat-step label="Step 2" state="chat">
+    <div class="step-content">
+      <!-- Show form preview if available -->
+      <div *ngIf="generatedImageUrl" class="form-preview-container">
+        <!-- Carousel container -->
+        <div class="carousel-container" 
+             [class.single-image]="!isCarouselEnabled()"
+             role="region"
+             [attr.aria-label]="'Form preview images'"
+             [attr.aria-describedby]="'image-description'">
+          <!-- Previous button (only show if carousel is enabled) -->
+          <button *ngIf="isCarouselEnabled()" 
+                  mat-icon-button 
+                  class="carousel-nav prev-btn"
+                  (click)="previousImage()"
+                  [attr.aria-label]="'Previous image ' + currentImageIndex + ' of ' + imageUrls.length"
+                  [attr.aria-controls]="'carousel-image'"
+                  type="button">
+            <mat-icon>chevron_left</mat-icon>
+          </button>
+
+          <!-- Image display -->
+          <div class="image-wrapper">
+            <img [src]="generatedImageUrl" 
+                 alt="Form Preview" 
+                 class="carousel-image"
+                 id="carousel-image"
+                 [attr.aria-describedby]="'image-counter'"
+                 role="img" />
+          </div>
+
+          <!-- Next button (only show if carousel is enabled) -->
+          <button *ngIf="isCarouselEnabled()" 
+                  mat-icon-button 
+                  class="carousel-nav next-btn"
+                  (click)="nextImage()"
+                  [attr.aria-label]="'Next image ' + (currentImageIndex + 2) + ' of ' + imageUrls.length"
+                  [attr.aria-controls]="'carousel-image'"
+                  type="button">
+            <mat-icon>chevron_right</mat-icon>
+          </button>
+        </div>
+
+        <!-- Image indicators (only show if carousel is enabled) -->
+        <div *ngIf="isCarouselEnabled()" 
+             class="carousel-indicators"
+             role="tablist"
+             aria-label="Image navigation">
+          <button *ngFor="let image of imageUrls; let i = index"
+                  class="indicator-btn"
+                  [class.active]="i === currentImageIndex"
+                  (click)="goToImage(i)"
+                  [attr.aria-label]="'Go to image ' + (i + 1) + ' of ' + imageUrls.length"
+                  [attr.aria-current]="i === currentImageIndex ? 'true' : 'false'"
+                  [attr.aria-controls]="'carousel-image'"
+                  role="tab"
+                  type="button">
+          </button>
+        </div>
+
+        <!-- Image counter and description -->
+        <div class="image-info">
+          <p *ngIf="isCarouselEnabled()" 
+             class="image-counter"
+             id="image-counter"
+             aria-live="polite">
+            Image {{ currentImageIndex + 1 }} of {{ imageUrls.length }}
+          </p>
+          <p class="image-description" id="image-description">
+            Form preview generated from your PDF
+            <span *ngIf="isCarouselEnabled()" class="sr-only">
+              Use arrow keys to navigate between images
+            </span>
+          </p>
+        </div>
+      </div>
+      
+      <!-- Show message if no preview available -->
+      <div *ngIf="!generatedImageUrl" class="no-file-warning">
+        <mat-icon>warning</mat-icon>
+        <div>
+          <p><strong>No form preview available</strong></p>
+          <p>Please go back to Step 1 and upload a PDF file first.</p>
+        </div>
+      </div>
+      
+      <!-- Navigation Buttons -->
+      <div class="navigation-buttons">
+        <button mat-button matStepperPrevious>
+          <mat-icon>arrow_back</mat-icon>
+          Back
+        </button>
+        <button mat-raised-button 
+                color="primary"
+                matStepperNext 
+                (click)="fetchImageAndDescribe()"
+                [disabled]="!generatedImageUrl">
+          <mat-icon>auto_awesome</mat-icon>
+          Analyze Form
+        </button>
+      </div>
+      
+      <!-- Helper text for disabled next button -->
+      <p *ngIf="!generatedImageUrl" class="helper-text">
+        <mat-icon>info</mat-icon>
+        Please upload and process a PDF file in Step 1 before proceeding.
+      </p>
+    </div>
+  </mat-step>  <mat-step label="Step 3">
+    <div class="step-content">
+      <!-- Show spinner while loading -->
+      <div *ngIf="isFetchingForm" class="loading-container">
+        <mat-spinner diameter="50" class="centered-spinner"></mat-spinner>
+        <p>Analyzing form structure...</p>
+      </div>
+
+      <!-- Show cache and performance info -->
+      <div *ngIf="!isFetchingForm && !error && fields.length > 0" class="cache-info-container">
+        <div class="cache-status" [class.cached]="isCachedResult" [class.fresh]="!isCachedResult">
+          <mat-icon>{{ isCachedResult ? 'flash_on' : 'psychology' }}</mat-icon>
+          <span *ngIf="isCachedResult" class="cache-text">
+            ⚡ Cached result ({{ processingTime }}ms)
+            <small *ngIf="cacheTimestamp"> • Cached: {{ cacheTimestamp | date:'short' }}</small>
+          </span>
+          <span *ngIf="!isCachedResult" class="fresh-text">
+            🧠 Fresh analysis ({{ processingTime }}ms)
+          </span>
+        </div>
+      </div>
+
+      <!-- Show error message if there's an error -->
+      <div *ngIf="error && !isFetchingForm" class="error-container">
+        <mat-error>{{ error }}</mat-error>
+        <button mat-button color="warn" (click)="fetchImageAndDescribe()">
+          <mat-icon>refresh</mat-icon>
+          Try Again
+        </button>
+      </div>
+
+      <!-- Dynamic Form Rendering -->
+      <div class="form-container" *ngIf="dynamicForm && !isFetchingForm && !error && fields.length > 0">
+        <!-- Form Title Display - Above the card -->
+        <div *ngIf="formTitle" class="form-title-container">
+          <h2 class="form-title">{{ formTitle }}</h2>
+        </div>
+        
+        <form [formGroup]="dynamicForm" (ngSubmit)="onSubmit()" class="material-form">
+
+        <!-- Clean field rendering for all fields -->
+        <div *ngFor="let field of fields; let i = index">
+          <div class="form-field-container">
+            <!-- Field Configuration Panel -->
+            <div class="field-config-panel">
+              <div class="field-config-header">
+                <span class="field-label">{{ field.name }}</span>
+                <mat-form-field appearance="outline" class="config-dropdown">
+                  <mat-label>Configuration</mat-label>
+                  <mat-select multiple 
+                              [value]="getFieldConfiguration(field.name)"
+                              (selectionChange)="updateFieldConfiguration(field.name, $event.value)">
+                    <mat-option *ngFor="let option of fieldConfigOptions" [value]="option">
+                      {{ option | titlecase }}
+                    </mat-option>
+                  </mat-select>
+                </mat-form-field>
+              </div>
+              
+              <!-- Configuration Status Display -->
+              <div class="config-status" *ngIf="getFieldConfiguration(field.name).length > 0">
+                <span *ngFor="let config of getFieldConfiguration(field.name)" class="config-badge">
+                  <mat-icon>{{ config === 'mandatory' ? 'star' : 'verified' }}</mat-icon>
+                  {{ config | titlecase }}
+                </span>
+              </div>
+            </div>
+
+            <!-- Textarea Fields -->
+            <ng-container *ngIf="isTextAreaField(field)">
+              <mat-form-field appearance="outline" class="full-width textarea-field">
+                <mat-label>{{ field.name }}</mat-label>
+                <textarea matInput 
+                          [rows]="field.name.toLowerCase().includes('reason') ? 8 : 6"
+                          [formControlName]="sanitizeFieldName(field.name)"
+                          [placeholder]="'Enter your ' + field.name.toLowerCase()"></textarea>
+                <mat-error *ngIf="getFieldConfiguration(field.name).includes('mandatory')">
+                  This field is required
+                </mat-error>
+              </mat-form-field>
+            </ng-container>
+
+            <!-- Signature Fields -->
+            <ng-container *ngIf="isSignatureField(field)">
+              <mat-form-field appearance="outline" class="full-width signature-field">
+                <mat-label>{{ field.name }}</mat-label>
+                <input matInput 
+                       type="text"
+                       [formControlName]="sanitizeFieldName(field.name)"
+                       placeholder="Click here to sign or type your signature" />
+                <mat-icon matSuffix>edit</mat-icon>
+                <mat-error *ngIf="getFieldConfiguration(field.name).includes('mandatory')">
+                  This field is required
+                </mat-error>
+              </mat-form-field>
+            </ng-container>
+
+            <!-- Label/Heading Fields -->
+            <ng-container *ngIf="field.type === 'label'">
+              <div class="label-field">
+                <h3 class="form-label-heading">{{ field.name }}</h3>
+              </div>
+            </ng-container>
+
+            <!-- Text/Number/Date Fields -->
+            <ng-container *ngIf="field.type !== 'checkbox' && field.type !== 'label' && !isTextAreaField(field) && !isSignatureField(field)">
+              <mat-form-field appearance="outline" class="full-width">
+                <mat-label>{{ field.name }}</mat-label>
+                <input matInput 
+                       [type]="isDateField(field) ? 'date' : (isNumericField(field) ? 'number' : 'text')"
+                       [formControlName]="sanitizeFieldName(field.name)" />
+                <mat-error *ngIf="getFieldConfiguration(field.name).includes('mandatory')">
+                  This field is required
+                </mat-error>
+              </mat-form-field>
+            </ng-container>
+
+            <!-- Single Checkbox -->
+            <ng-container *ngIf="field.type === 'checkbox' && !isCheckboxGroup(field)">
+              <div class="single-checkbox-container">
+                <mat-checkbox [formControlName]="sanitizeFieldName(field.name)">
+                  {{ field.name }}
+                  <span *ngIf="getFieldConfiguration(field.name).includes('mandatory')" class="required-indicator">*</span>
+                </mat-checkbox>
+              </div>
+            </ng-container>
+
+            <!-- Checkbox Group -->
+            <ng-container *ngIf="field.type === 'checkbox' && isCheckboxGroup(field)">
+              <div [formGroupName]="sanitizeFieldName(field.name)" class="checkbox-group">
+                <label class="group-label">
+                  {{ field.name }}:
+                  <span *ngIf="getFieldConfiguration(field.name).includes('mandatory')" class="required-indicator">*</span>
+                </label>
+                <div *ngFor="let option of objectKeys(field.value)" class="checkbox-item">
+                  <mat-checkbox [formControlName]="option">
+                    {{ option }}
+                  </mat-checkbox>
+                </div>
+              </div>
+            </ng-container>
+          </div>
+        </div>
+
+        <div class="upload-button">
+          <button mat-raised-button 
+                  color="primary" 
+                  type="submit"
+                  [disabled]="isSavingForm">
+            <mat-spinner *ngIf="isSavingForm" diameter="20"></mat-spinner>
+            <mat-icon *ngIf="!isSavingForm">save</mat-icon>
+            {{ isSavingForm ? 'Saving...' : 'Save Form' }}
+          </button>
+        </div>
+        </form>
+      </div>
+    </div>
+  </mat-step>
+  <!-- Icon overrides. -->
+  <ng-template matStepperIcon="phone">
+    <mat-icon>call_end</mat-icon>
+  </ng-template>
+  <ng-template matStepperIcon="chat">
+    <mat-icon>forum</mat-icon>
+  </ng-template>
+</mat-stepper>
+  </div>
+
+  <!-- Form Confirmation View -->
+  <div *ngIf="currentView === 'confirmation' && savedFormData">
+    <app-form-confirmation
+      [formId]="savedFormData!.formId"
+      [formName]="savedFormData!.formName"
+      [savedAt]="savedFormData!.savedAt"
+      (viewForm)="onViewForm($event)"
+      (createNew)="onCreateNewForm()">>
+    </app-form-confirmation>
+  </div>
+
+  <!-- Form Viewer View -->
+  <div *ngIf="currentView === 'viewer'">
+    <app-form-viewer
+      [formId]="viewerFormId"
+      [showHeader]="false"
+      (backToMain)="onBackToMain()">
+    </app-form-viewer>
+  </div>
+</div>

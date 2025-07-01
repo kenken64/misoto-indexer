@@ -31,8 +31,6 @@ package sg.edu.nus.iss.codebase.indexer.service;
 
 import org.springframework.ai.document.Document;
 import sg.edu.nus.iss.codebase.indexer.config.DynamicVectorStoreFactory;
-import sg.edu.nus.iss.codebase.indexer.service.CodeAnalysisService;
-import sg.edu.nus.iss.codebase.indexer.service.ProjectAnalysisService;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;

@@ -4,6 +4,12 @@ import sg.edu.nus.iss.codebase.indexer.dto.SearchRequest;
 import sg.edu.nus.iss.codebase.indexer.service.HybridSearchService;
 import sg.edu.nus.iss.codebase.indexer.service.FileSearchService;
 import sg.edu.nus.iss.codebase.indexer.util.ScoreFormatter;
+import sg.edu.nus.iss.codebase.indexer.config.DynamicVectorStoreFactory;
+import sg.edu.nus.iss.codebase.indexer.service.interfaces.FileIndexingService;
+import sg.edu.nus.iss.codebase.indexer.model.IndexingStatus;
+import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.ai.document.Document;
+import org.springframework.ai.vectorstore.SearchRequest.Builder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -15,13 +21,18 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Arrays;
-import java.util.stream.Collectors;
 
 @Component
 @ConditionalOnProperty(name = "app.cli.enabled", havingValue = "true", matchIfMissing = true)
 public class SearchCLI implements CommandLineRunner {
     @Autowired
     private HybridSearchService hybridSearchService;
+    
+    @Autowired
+    private DynamicVectorStoreFactory vectorStoreFactory;
+    
+    @Autowired
+    private FileIndexingService fileIndexingService;
 
     private final Scanner scanner = new Scanner(System.in);
 
@@ -87,16 +98,16 @@ public class SearchCLI implements CommandLineRunner {
 
     private void displayIndexingStatus() {
         try {
-            HybridSearchService.IndexingStatus status = hybridSearchService.getIndexingStatus();
+            IndexingStatus status = hybridSearchService.getIndexingStatus();
 
             if (status == null) {
                 System.out.println("[STATUS] Unable to retrieve indexing status");
                 return;
             }
 
-            if (status.isComplete()) {
+            if (status.isIndexingComplete()) {
                 System.out.println("[DONE] Indexing Complete: " + status.getIndexedFiles() + " files indexed");
-            } else if (status.isInProgress()) {
+            } else if (status.isIndexingInProgress()) {
                 System.out.printf("[PROGRESS] Indexing in Progress: %d/%d files (%.1f%%) - Search available%n",
                         status.getIndexedFiles(), status.getTotalFiles(), status.getProgress());
             } else {
@@ -120,7 +131,8 @@ public class SearchCLI implements CommandLineRunner {
                 case 4 -> performTextSearch();
                 case 5 -> performAdvancedSearch();
                 case 6 -> startIndexing();
-                case 7 -> displayHelp();
+                case 7 -> performDirectQdrantQuery();
+                case 8 -> displayHelp();
                 case 0 -> {
                     System.out.println("Thank you for using Misoto Codebase Indexer!");
                     return;
@@ -143,7 +155,8 @@ public class SearchCLI implements CommandLineRunner {
         System.out.println("| 4. [T] Text Search                                    |");
         System.out.println("| 5. [A] Advanced Search                                |");
         System.out.println("| 6. [I] Index Codebase                                 |");
-        System.out.println("| 7. [?] Help                                           |");
+        System.out.println("| 7. [Q] Direct Qdrant Vector Query                     |");
+        System.out.println("| 8. [?] Help                                           |");
         System.out.println("| 0. [X] Exit                                           |");
         System.out.println("+-------------------------------------------------------+");
         System.out.print("Enter your choice: ");
@@ -191,7 +204,7 @@ public class SearchCLI implements CommandLineRunner {
             }
 
             // Basic status
-            HybridSearchService.IndexingStatus status = hybridSearchService.getIndexingStatus();
+            IndexingStatus status = hybridSearchService.getIndexingStatus();
 
             if (status == null) {
                 System.out.println("ERROR: Unable to retrieve indexing status");
@@ -205,11 +218,11 @@ public class SearchCLI implements CommandLineRunner {
                     Math.max(0, status.getTotalFiles() - status.getIndexedFiles()));
             System.out.printf("[TOTAL] Total Files: %d%n", status.getTotalFiles());
             System.out.printf("[PROGRESS] Progress: %.1f%% - %s%n", status.getProgress(),
-                    status.isInProgress() ? "In Progress" : (status.isComplete() ? "Complete" : "Ready"));
+                    status.isIndexingInProgress() ? "In Progress" : (status.isIndexingComplete() ? "Complete" : "Ready"));
             System.out.println("\n[TIME] TIMING INFORMATION:");
             System.out.println("-".repeat(40));
 
-            if (status.isInProgress()) {
+            if (status.isIndexingInProgress()) {
                 try {
                     long currentDuration = indexingService.getCurrentIndexingDuration();
                     long estimatedTotal = indexingService.getEstimatedTotalDuration();
@@ -222,7 +235,7 @@ public class SearchCLI implements CommandLineRunner {
                     System.out.println("[ERROR] Could not retrieve timing information: " + e.getMessage());
                 }
 
-            } else if (status.isComplete()) {
+            } else if (status.isIndexingComplete()) {
                 try {
                     long totalDuration = indexingService.getTotalIndexingDuration();
                     System.out.printf("[DONE] Total Duration: %s%n", formatDuration(totalDuration));
@@ -292,7 +305,7 @@ public class SearchCLI implements CommandLineRunner {
                 System.out.println("[ERROR] Could not retrieve skipped file count: " + e.getMessage());
             }
 
-            if (status.isInProgress()) {
+            if (status.isIndexingInProgress()) {
                 System.out.println("\n[NOTE] Indexing is still in progress. Statistics will continue updating.");
             }
         } catch (Exception e) {
@@ -363,14 +376,20 @@ public class SearchCLI implements CommandLineRunner {
                 System.out.printf("   🔍 Indexed: %s%n", vResult.getIndexedAt());
                 System.out.printf("   📏 Size: %s bytes%n", vResult.getFileSize());
 
-                // Display line matches if available
+                // Display enhanced line matches if available
                 if (!vResult.getLineMatches().isEmpty()) {
-                    System.out.println("   🎯 Line Matches:");
-                    for (FileSearchService.LineMatch lineMatch : vResult.getLineMatches()) {
-                        System.out.printf("      Line %d: %s%n", lineMatch.getLineNumber(), lineMatch.getLineContent());
-                    }
+                    System.out.println("   🎯 Matching Content:");
+                    // Convert HybridSearchService.LineMatch to FileSearchService.LineMatch
+                    List<FileSearchService.LineMatch> convertedMatches = vResult.getLineMatches().stream()
+                        .map(match -> new FileSearchService.LineMatch(
+                            match.getLineNumber(),
+                            match.getLineContent(),
+                            match.getMatchedTerm()
+                        ))
+                        .collect(Collectors.toList());
+                    displayEnhancedLineMatches(convertedMatches, vResult.getFileName());
                 } else {
-                    System.out.printf("   📝 %s%n", truncateContent(vResult.getContent(), 200));
+                    System.out.printf("   📝 Content Preview: %s%n", truncateContent(vResult.getContent(), 200));
                 }
                 System.out.println();
             }
@@ -384,14 +403,12 @@ public class SearchCLI implements CommandLineRunner {
                         i + 1, fResult.getFileName(), ScoreFormatter.formatScoreCompact(fResult.getRelevanceScore()));
                 System.out.printf("   📁 %s%n", fResult.getFilePath());
 
-                // Display line matches if available
+                // Display enhanced line matches if available
                 if (!fResult.getLineMatches().isEmpty()) {
-                    System.out.println("   🎯 Line Matches:");
-                    for (FileSearchService.LineMatch lineMatch : fResult.getLineMatches()) {
-                        System.out.printf("      Line %d: %s%n", lineMatch.getLineNumber(), lineMatch.getLineContent());
-                    }
+                    System.out.println("   🎯 Matching Content:");
+                    displayEnhancedLineMatches(fResult.getLineMatches(), fResult.getFileName());
                 } else {
-                    System.out.printf("   📝 %s%n", truncateContent(fResult.getContent(), 150));
+                    System.out.printf("   📝 Content Preview: %s%n", truncateContent(fResult.getContent(), 150));
                 }
                 System.out.println();
             }
@@ -436,6 +453,7 @@ public class SearchCLI implements CommandLineRunner {
         System.out.println("  4. Text Search: Fast keyword-based search");
         System.out.println("  5. Advanced Search: Combine multiple criteria for precise results");
         System.out.println("  6. Index Codebase: Manage indexing process and directory");
+        System.out.println("  7. Direct Qdrant Query: Send raw vector queries to database");
         System.out.println();
 
         System.out.println("🧠 SEMANTIC SEARCH TIPS:");
@@ -455,6 +473,14 @@ public class SearchCLI implements CommandLineRunner {
         System.out.println("  • Filter by file extensions (.java, .kt, .py)");
         System.out.println("  • Adjust similarity thresholds");
         System.out.println("  • Control result limits");
+        System.out.println();
+
+        System.out.println("🔧 DIRECT QDRANT QUERY:");
+        System.out.println("  • Send raw vector queries directly to Qdrant database");
+        System.out.println("  • Bypass all processing layers for debugging");
+        System.out.println("  • View raw document metadata and content");
+        System.out.println("  • Useful for troubleshooting vector storage issues");
+        System.out.println("  • Shows current collection and indexing status");
         System.out.println();
 
         System.out.println("🚀 HYBRID INDEXING:");
@@ -665,7 +691,7 @@ public class SearchCLI implements CommandLineRunner {
         System.out.println();
 
         // Show current status
-        HybridSearchService.IndexingStatus status = hybridSearchService.getIndexingStatus();
+        IndexingStatus status = hybridSearchService.getIndexingStatus();
         System.out.printf("Current directory: %s%n", getCurrentIndexingDirectory());
         System.out.printf("Indexed files: %d | Total files: %d%n",
                 status.getIndexedFiles(), status.getTotalFiles());
@@ -752,16 +778,22 @@ public class SearchCLI implements CommandLineRunner {
         System.out.printf("🧠 SEMANTIC SEARCH RESULTS (completed in %dms)%n", searchTime);
         System.out.println("=".repeat(80));
 
-        System.out.printf("🎯 Similarity threshold: %.2f%n", threshold);
+        System.out.printf("🎯 Using alternative ranking system (threshold: %.2f bypassed)%n", threshold);
         System.out.printf("📊 Found %d results%n%n", result.getTotalResults());
 
         if (!result.getVectorResults().isEmpty()) {
-            for (int i = 0; i < result.getVectorResults().size(); i++) {
-                HybridSearchService.SearchResult vResult = result.getVectorResults().get(i);
-                System.out.printf("%d. 📄 %s (similarity: %.2f)%n",
-                        i + 1, vResult.getFileName(), vResult.getScore());
-                System.out.printf("   📁 %s%n", vResult.getFilePath());
-                System.out.printf("   📝 %s%n%n", truncateContent(vResult.getContent(), 200));
+            // Check if this is an endpoint discovery query
+            if (isEndpointDiscoveryQuery(result)) {
+                displayEndpointAnalysis(result.getVectorResults());
+            } else {
+                // Standard semantic search results
+                for (int i = 0; i < result.getVectorResults().size(); i++) {
+                    HybridSearchService.SearchResult vResult = result.getVectorResults().get(i);
+                    System.out.printf("%d. 📄 %s (similarity: %.2f)%n",
+                            i + 1, vResult.getFileName(), vResult.getScore());
+                    System.out.printf("   📁 %s%n", vResult.getFilePath());
+                    System.out.printf("   📝 %s%n%n", truncateContent(vResult.getContent(), 200));
+                }
             }
         } else {
             System.out.println("❌ No semantic matches found above the threshold.");
@@ -1022,5 +1054,623 @@ public class SearchCLI implements CommandLineRunner {
         System.out.println(BOLD + "                          " + BRIGHT_MAGENTA + "🌈 " + BRIGHT_GREEN + ">.< " + BRIGHT_CYAN + "Intelligent Code Search System " + BRIGHT_MAGENTA + "🌈" + RESET);
         System.out.println();
         
+    }
+
+    /**
+     * Check if the search results indicate an endpoint discovery query
+     */
+    private boolean isEndpointDiscoveryQuery(HybridSearchService.HybridSearchResult result) {
+        // Count how many results contain endpoint-related content
+        int endpointCount = 0;
+        int totalResults = result.getVectorResults().size();
+        
+        for (HybridSearchService.SearchResult searchResult : result.getVectorResults()) {
+            String content = searchResult.getContent().toLowerCase();
+            if (content.contains("@app.route") || 
+                content.contains("@requestmapping") ||
+                content.contains("@getmapping") ||
+                content.contains("@postmapping") ||
+                content.contains("rest api endpoint") ||
+                content.contains("route:") ||
+                content.contains("endpoint:") ||
+                content.contains("api endpoint") ||
+                content.contains("app.get") ||
+                content.contains("app.post") ||
+                content.contains("methods=[") ||
+                content.contains("def ") && (content.contains("route") || content.contains("api"))) {
+                endpointCount++;
+            }
+        }
+        
+        // If more than 60% of results are endpoint-related, treat as endpoint discovery
+        return totalResults > 0 && (double) endpointCount / totalResults > 0.6;
+    }
+
+    /**
+     * Display results in endpoint analysis format
+     */
+    private void displayEndpointAnalysis(List<HybridSearchService.SearchResult> results) {
+        System.out.println("🎯 API ENDPOINTS:");
+        System.out.println();
+        
+        List<EndpointInfo> endpoints = new ArrayList<>();
+        List<EndpointInfo> errorHandlers = new ArrayList<>();
+        
+        // Parse and categorize endpoints
+        for (HybridSearchService.SearchResult result : results) {
+            List<EndpointInfo> parsed = parseEndpoints(result);
+            for (EndpointInfo endpoint : parsed) {
+                if (endpoint.isErrorHandler) {
+                    errorHandlers.add(endpoint);
+                } else {
+                    endpoints.add(endpoint);
+                }
+            }
+        }
+        
+        // Display regular endpoints
+        for (int i = 0; i < endpoints.size(); i++) {
+            EndpointInfo endpoint = endpoints.get(i);
+            System.out.printf("  %d. %s%n", i + 1, endpoint.route);
+            System.out.printf("  - Function: %s%n", endpoint.functionName);
+            System.out.printf("  - Purpose: %s%n", endpoint.purpose);
+            if (endpoint.input != null && !endpoint.input.isEmpty()) {
+                System.out.printf("  - Input: %s%n", endpoint.input);
+            }
+            System.out.printf("  - Returns: %s%n", endpoint.returns);
+            System.out.println();
+        }
+        
+        // Display error handlers
+        if (!errorHandlers.isEmpty()) {
+            System.out.println("🚨 Error Handlers:");
+            System.out.println();
+            
+            for (int i = 0; i < errorHandlers.size(); i++) {
+                EndpointInfo handler = errorHandlers.get(i);
+                System.out.printf("  %d. %s%n", endpoints.size() + i + 1, handler.route);
+                System.out.printf("  - Function: %s%n", handler.functionName);
+                System.out.printf("  - Purpose: %s%n", handler.purpose);
+                System.out.printf("  - Returns: %s%n", handler.returns);
+                System.out.println();
+            }
+        }
+        
+        // Display summary
+        System.out.println("📊 Summary:");
+        System.out.println();
+        int totalRoutes = endpoints.size() + errorHandlers.size();
+        System.out.printf("  - Total Routes: %d (%d regular endpoints + %d error handlers)%n", 
+            totalRoutes, endpoints.size(), errorHandlers.size());
+        
+        // Count API endpoints (those with /api/ in path)
+        long apiEndpoints = endpoints.stream().filter(e -> e.route.contains("/api/")).count();
+        System.out.printf("  - API Endpoints: %d%n", apiEndpoints);
+        
+        // Count by HTTP method
+        long getEndpoints = endpoints.stream().filter(e -> e.route.contains("[GET]") || !e.route.contains("methods=")).count();
+        long postEndpoints = endpoints.stream().filter(e -> e.route.contains("[POST]") || e.route.contains("methods=['POST']")).count();
+        System.out.printf("  - HTTP Methods: GET (%d), POST (%d)%n", getEndpoints, postEndpoints);
+        
+        // Determine framework
+        String framework = "Unknown";
+        if (results.stream().anyMatch(r -> r.getContent().contains("@app.route"))) {
+            framework = "Flask";
+        } else if (results.stream().anyMatch(r -> r.getContent().contains("@RequestMapping"))) {
+            framework = "Spring Boot";
+        } else if (results.stream().anyMatch(r -> r.getContent().contains("app.get") || r.getContent().contains("app.post"))) {
+            framework = "Express.js";
+        }
+        System.out.printf("  - Framework: %s%n", framework);
+    }
+
+    /**
+     * Parse endpoint information from search result
+     */
+    private List<EndpointInfo> parseEndpoints(HybridSearchService.SearchResult result) {
+        List<EndpointInfo> endpoints = new ArrayList<>();
+        String content = result.getContent();
+        String[] lines = content.split("\n");
+        
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i].trim();
+            
+            // Flask route detection
+            if (line.contains("@app.route")) {
+                EndpointInfo endpoint = new EndpointInfo();
+                endpoint.route = extractFlaskRoute(line);
+                
+                // Find function name and purpose
+                for (int j = i + 1; j < Math.min(i + 10, lines.length); j++) {
+                    String nextLine = lines[j].trim();
+                    if (nextLine.startsWith("def ")) {
+                        endpoint.functionName = extractFunctionName(nextLine);
+                        break;
+                    }
+                }
+                
+                // Determine purpose and other details
+                endpoint.purpose = inferPurpose(endpoint.route, content);
+                endpoint.input = inferInput(content, endpoint.route);
+                endpoint.returns = inferReturns(content, endpoint.route);
+                endpoint.isErrorHandler = false;
+                
+                endpoints.add(endpoint);
+            }
+            
+            // Error handler detection
+            else if (line.contains("@app.errorhandler")) {
+                EndpointInfo handler = new EndpointInfo();
+                handler.route = line;
+                
+                // Find function name
+                for (int j = i + 1; j < Math.min(i + 5, lines.length); j++) {
+                    String nextLine = lines[j].trim();
+                    if (nextLine.startsWith("def ")) {
+                        handler.functionName = extractFunctionName(nextLine);
+                        break;
+                    }
+                }
+                
+                handler.purpose = inferErrorHandlerPurpose(line);
+                handler.returns = inferErrorHandlerReturns(line);
+                handler.isErrorHandler = true;
+                
+                endpoints.add(handler);
+            }
+        }
+        
+        return endpoints;
+    }
+
+    /**
+     * Extract Flask route information
+     */
+    private String extractFlaskRoute(String line) {
+        // Extract route path and methods
+        String route = line;
+        if (line.contains("('") && line.contains("')")) {
+            int start = line.indexOf("('") + 2;
+            int end = line.indexOf("')", start);
+            if (end > start) {
+                String path = line.substring(start, end);
+                
+                // Extract HTTP methods
+                if (line.contains("methods=")) {
+                    int methodStart = line.indexOf("methods=");
+                    String methodPart = line.substring(methodStart);
+                    if (methodPart.contains("['POST']")) {
+                        route = "@app.route('" + path + "', methods=['POST'])";
+                    } else if (methodPart.contains("['GET']")) {
+                        route = "@app.route('" + path + "') [GET]";
+                    } else {
+                        route = "@app.route('" + path + "', " + methodPart.split("\\)")[0] + ")";
+                    }
+                } else {
+                    route = "@app.route('" + path + "') [GET]";
+                }
+            }
+        }
+        return route;
+    }
+
+    /**
+     * Extract function name from def line
+     */
+    private String extractFunctionName(String line) {
+        if (line.startsWith("def ")) {
+            int start = 4;
+            int end = line.indexOf("(");
+            if (end > start) {
+                return line.substring(start, end) + "()";
+            }
+        }
+        return "unknown()";
+    }
+
+    /**
+     * Infer endpoint purpose
+     */
+    private String inferPurpose(String route, String content) {
+        String lowerContent = content.toLowerCase();
+        
+        if (route.contains("/api/generate-sql")) {
+            return "API endpoint to generate SQL from natural language";
+        } else if (route.contains("/api/validate-sql")) {
+            return "API endpoint to validate SQL syntax";
+        } else if (route.contains("/api/status")) {
+            return "Check the status of the text-to-SQL service";
+        } else if (route.contains("'/'") && !route.contains("/api/")) {
+            return "Main page with the text-to-SQL interface";
+        } else if (route.contains("/examples")) {
+            return "Page with example schemas and queries";
+        } else if (lowerContent.contains("render_template")) {
+            return "Web page endpoint";
+        } else if (lowerContent.contains("jsonify")) {
+            return "API endpoint returning JSON response";
+        } else {
+            return "Application endpoint";
+        }
+    }
+
+    /**
+     * Infer input requirements
+     */
+    private String inferInput(String content, String route) {
+        String lowerContent = content.toLowerCase();
+        
+        if (route.contains("methods=['POST']")) {
+            if (route.contains("/api/generate-sql")) {
+                return "JSON with schema and query fields";
+            } else if (route.contains("/api/validate-sql")) {
+                return "JSON with sql field";
+            } else if (lowerContent.contains("request.get_json")) {
+                return "JSON data";
+            } else {
+                return "POST data";
+            }
+        }
+        return null; // GET requests typically don't have input requirements
+    }
+
+    /**
+     * Infer return type
+     */
+    private String inferReturns(String content, String route) {
+        String lowerContent = content.toLowerCase();
+        
+        if (lowerContent.contains("render_template")) {
+            if (route.contains("'/'")) {
+                return "Renders index.html template";
+            } else if (route.contains("/examples")) {
+                return "Renders examples.html template";
+            } else {
+                return "Renders HTML template";
+            }
+        } else if (lowerContent.contains("jsonify")) {
+            if (route.contains("/api/generate-sql")) {
+                return "JSON with generated SQL, validation status, and response";
+            } else if (route.contains("/api/validate-sql")) {
+                return "JSON with validation status and message";
+            } else if (route.contains("/api/status")) {
+                return "JSON with Ollama status, model existence, and timestamp";
+            } else {
+                return "JSON response";
+            }
+        } else {
+            return "Response data";
+        }
+    }
+
+    /**
+     * Infer error handler purpose
+     */
+    private String inferErrorHandlerPurpose(String line) {
+        if (line.contains("404")) {
+            return "Handle 404 Not Found errors";
+        } else if (line.contains("500")) {
+            return "Handle 500 Internal Server errors";
+        } else {
+            return "Handle application errors";
+        }
+    }
+
+    /**
+     * Infer error handler returns
+     */
+    private String inferErrorHandlerReturns(String line) {
+        if (line.contains("404")) {
+            return "Renders 404.html template with 404 status";
+        } else if (line.contains("500")) {
+            return "Renders 500.html template with 500 status";
+        } else {
+            return "Error response";
+        }
+    }
+
+    /**
+     * Helper class to store endpoint information
+     */
+    private static class EndpointInfo {
+        String route;
+        String functionName;
+        String purpose;
+        String input;
+        String returns;
+        boolean isErrorHandler;
+    }
+
+    /**
+     * Display enhanced line matches with better formatting and context
+     */
+    private void displayEnhancedLineMatches(List<FileSearchService.LineMatch> lineMatches, String fileName) {
+        if (lineMatches == null || lineMatches.isEmpty()) {
+            return;
+        }
+        
+        // Determine file type for syntax highlighting context
+        String fileExtension = getFileExtension(fileName);
+        String languageIndicator = getLanguageIndicator(fileExtension);
+        
+        // Group consecutive line numbers for better display
+        Map<Integer, String> sortedMatches = new HashMap<>();
+        for (FileSearchService.LineMatch match : lineMatches) {
+            sortedMatches.put(match.getLineNumber(), match.getLineContent());
+        }
+        
+        // Sort by line number and display
+        sortedMatches.entrySet().stream()
+            .sorted(Map.Entry.comparingByKey())
+            .limit(5) // Show max 5 matches to avoid overwhelming output
+            .forEach(entry -> {
+                int lineNumber = entry.getKey();
+                String content = entry.getValue();
+                
+                // Format line number with consistent width
+                String formattedLineNumber = String.format("%4d", lineNumber);
+                
+                // Truncate long lines but preserve important parts
+                String displayContent = formatLineContent(content, fileExtension);
+                
+                // Display with language indicator and line reference
+                System.out.printf("      %s %s:%s │ %s%n", 
+                    languageIndicator, 
+                    fileName, 
+                    formattedLineNumber, 
+                    displayContent);
+            });
+        
+        // Show additional context if there are more matches
+        if (lineMatches.size() > 5) {
+            System.out.printf("      💡 + %d more matches in this file%n", lineMatches.size() - 5);
+        }
+    }
+    
+    /**
+     * Get file extension from filename
+     */
+    private String getFileExtension(String fileName) {
+        if (fileName == null || !fileName.contains(".")) {
+            return "";
+        }
+        return fileName.substring(fileName.lastIndexOf(".")).toLowerCase();
+    }
+    
+    /**
+     * Get language indicator emoji based on file extension
+     */
+    private String getLanguageIndicator(String extension) {
+        switch (extension) {
+            case ".py": return "🐍";
+            case ".java": return "☕";
+            case ".js":
+            case ".ts": return "🟨";
+            case ".jsx":
+            case ".tsx": return "⚛️";
+            case ".rs": return "🦀";
+            case ".go": return "🐹";
+            case ".cs": return "🔷";
+            case ".cpp":
+            case ".cc":
+            case ".c": return "⚡";
+            case ".php": return "🐘";
+            case ".rb": return "💎";
+            case ".sh":
+            case ".bash": return "🐚";
+            case ".sql": return "🗃️";
+            case ".yml":
+            case ".yaml": return "📄";
+            case ".json": return "📋";
+            case ".xml": return "🏷️";
+            case ".html": return "🌐";
+            case ".css": return "🎨";
+            case ".md": return "📝";
+            default: return "📄";
+        }
+    }
+    
+    /**
+     * Format line content for better display with context preservation
+     */
+    private String formatLineContent(String content, String fileExtension) {
+        if (content == null) {
+            return "";
+        }
+        
+        // Trim whitespace but preserve indentation structure
+        String trimmed = content.trim();
+        
+        // Detect indentation level
+        int originalLength = content.length();
+        int trimmedLength = trimmed.length();
+        int leadingSpaces = originalLength - trimmedLength - (content.length() - content.replaceAll("\\s+$", "").length());
+        String indentIndicator = leadingSpaces > 0 ? "→".repeat(Math.min(leadingSpaces / 2, 4)) : "";
+        
+        // Truncate long lines while preserving key syntax
+        if (trimmed.length() > 100) {
+            // Try to preserve important parts based on file type
+            String truncated = preserveImportantSyntax(trimmed, fileExtension);
+            return indentIndicator + truncated + "...";
+        }
+        
+        return indentIndicator + trimmed;
+    }
+    
+    /**
+     * Preserve important syntax when truncating based on file type
+     */
+    private String preserveImportantSyntax(String content, String fileExtension) {
+        // For Python files, preserve function definitions, decorators, imports
+        if (".py".equals(fileExtension)) {
+            if (content.startsWith("def ") || content.startsWith("class ") || 
+                content.startsWith("@") || content.startsWith("import ") || 
+                content.startsWith("from ")) {
+                return content.substring(0, Math.min(80, content.length()));
+            }
+        }
+        
+        // For Java files, preserve method signatures, annotations
+        if (".java".equals(fileExtension)) {
+            if (content.contains("public ") || content.contains("private ") || 
+                content.contains("@") || content.contains("class ") || 
+                content.contains("interface ")) {
+                return content.substring(0, Math.min(80, content.length()));
+            }
+        }
+        
+        // For JavaScript/TypeScript, preserve function definitions, exports
+        if (".js".equals(fileExtension) || ".ts".equals(fileExtension) || 
+            ".jsx".equals(fileExtension) || ".tsx".equals(fileExtension)) {
+            if (content.contains("function ") || content.contains("export ") || 
+                content.contains("import ") || content.contains("const ") || 
+                content.contains("let ")) {
+                return content.substring(0, Math.min(80, content.length()));
+            }
+        }
+        
+        // Default truncation - preserve start and try to end at word boundary
+        String truncated = content.substring(0, Math.min(80, content.length()));
+        int lastSpace = truncated.lastIndexOf(' ');
+        if (lastSpace > 60) { // Only use word boundary if it's not too early
+            truncated = truncated.substring(0, lastSpace);
+        }
+        return truncated;
+    }
+
+    /**
+     * Perform direct query to Qdrant vector database
+     */
+    private void performDirectQdrantQuery() {
+        try {
+            System.out.println("\n" + "=".repeat(80));
+            System.out.println("🔍 DIRECT QDRANT VECTOR DATABASE QUERY");
+            System.out.println("=".repeat(80));
+            
+            // Get current collection information
+            String currentCollection = fileIndexingService.getCurrentCollectionName();
+            String currentDirectory = fileIndexingService.getCurrentIndexingDirectory();
+            
+            System.out.println("📊 Current Collection Info:");
+            System.out.printf("   • Collection: %s%n", currentCollection);
+            System.out.printf("   • Directory: %s%n", currentDirectory);
+            System.out.printf("   • Indexed Files: %d%n", fileIndexingService.getIndexedFileCount());
+            System.out.println();
+            
+            // Get query from user
+            System.out.print("🔎 Enter your vector search query: ");
+            String query = scanner.nextLine().trim();
+            
+            if (query.isEmpty()) {
+                System.out.println("❌ Query cannot be empty.");
+                return;
+            }
+            
+            // Get search parameters
+            System.out.print("📊 Max results (default 10): ");
+            String maxResultsInput = scanner.nextLine().trim();
+            int maxResults = maxResultsInput.isEmpty() ? 10 : Integer.parseInt(maxResultsInput);
+            
+            System.out.print("🎯 Similarity threshold (0.0-1.0, default 0.0): ");
+            String thresholdInput = scanner.nextLine().trim();
+            double threshold = thresholdInput.isEmpty() ? 0.0 : Double.parseDouble(thresholdInput);
+            
+            System.out.println("\n⚡ Executing direct vector search...");
+            long startTime = System.currentTimeMillis();
+            
+            // Create vector store for current collection
+            VectorStore vectorStore = vectorStoreFactory.createVectorStore(currentCollection);
+            
+            // Build search request
+            org.springframework.ai.vectorstore.SearchRequest searchRequest = 
+                org.springframework.ai.vectorstore.SearchRequest.builder()
+                    .query(query)
+                    .topK(maxResults)
+                    .similarityThreshold(threshold)
+                    .build();
+            
+            // Execute direct vector search
+            List<Document> results = vectorStore.similaritySearch(searchRequest);
+            
+            long searchTime = System.currentTimeMillis() - startTime;
+            
+            // Display results
+            displayDirectQdrantResults(results, query, searchTime, threshold);
+            
+        } catch (NumberFormatException e) {
+            System.out.println("❌ Invalid number format. Please enter valid numeric values.");
+        } catch (Exception e) {
+            System.err.println("❌ Error performing direct Qdrant query: " + e.getMessage());
+            e.printStackTrace();
+        }
+        
+        System.out.print("\nPress Enter to continue...");
+        scanner.nextLine();
+    }
+    
+    /**
+     * Display results from direct Qdrant vector search
+     */
+    private void displayDirectQdrantResults(List<Document> results, String query, long searchTime, double threshold) {
+        System.out.println("\n" + "=".repeat(80));
+        System.out.printf("🎯 DIRECT VECTOR SEARCH RESULTS (completed in %dms)%n", searchTime);
+        System.out.println("=".repeat(80));
+        
+        System.out.printf("🔍 Query: \"%s\"%n", query);
+        System.out.printf("📊 Threshold: %.3f | Found: %d documents%n", threshold, results.size());
+        System.out.println();
+        
+        if (results.isEmpty()) {
+            System.out.println("❌ No documents found matching your query.");
+            System.out.println("💡 Try:");
+            System.out.println("   • Lowering the similarity threshold");
+            System.out.println("   • Using different keywords");
+            System.out.println("   • Checking if files are properly indexed");
+        } else {
+            System.out.println("📋 Raw Vector Search Results:");
+            System.out.println("-".repeat(40));
+            
+            for (int i = 0; i < results.size(); i++) {
+                Document doc = results.get(i);
+                Map<String, Object> metadata = doc.getMetadata();
+                
+                System.out.printf("%d. 📄 %s%n", i + 1, 
+                    metadata.getOrDefault("filename", "Unknown"));
+                
+                // Display metadata info
+                System.out.printf("   📁 Path: %s%n", 
+                    metadata.getOrDefault("filepath", "Unknown"));
+                System.out.printf("   🏷️  Type: %s%n", 
+                    metadata.getOrDefault("documentType", "Unknown"));
+                System.out.printf("   📏 Size: %s bytes%n", 
+                    metadata.getOrDefault("size", "Unknown"));
+                
+                // Display chunk info if available
+                if (metadata.containsKey("chunk")) {
+                    System.out.printf("   🧩 Chunk: %s", metadata.get("chunk"));
+                    if (metadata.containsKey("total_chunks")) {
+                        System.out.printf(" of %s", metadata.get("total_chunks"));
+                    }
+                    System.out.println();
+                }
+                
+                // Display content preview
+                String content = doc.getText();
+                System.out.printf("   📝 Content: %s%n", truncateContent(content, 200));
+                
+                // Check for Flask/API content
+                if (content.contains("@app.route") || content.contains("Flask") || content.contains("/api/")) {
+                    System.out.println("   🎯 Contains Flask/API content!");
+                }
+                
+                // Display additional metadata fields
+                System.out.println("   🏷️  Metadata fields: " + metadata.keySet());
+                
+                System.out.println();
+            }
+        }
+        
+        System.out.println("=".repeat(80));
+        System.out.println("💡 This is a direct vector database query bypassing all processing layers.");
+        System.out.println("🔧 Use this to debug vector storage and retrieval issues.");
     }
 }

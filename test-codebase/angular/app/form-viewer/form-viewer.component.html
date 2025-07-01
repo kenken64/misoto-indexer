@@ -1,0 +1,254 @@
+<div class="app-container">
+  <!-- Dashboard Header - Only shown when showHeader is true -->
+  <app-header subtitle="Form Viewer" *ngIf="showHeader"></app-header>
+
+  <!-- Main Content -->
+  <div class="main-content">
+    <div class="viewer-container">
+      <!-- Loading State -->
+      <div *ngIf="loading" class="loading-container">
+        <mat-spinner diameter="50"></mat-spinner>
+        <p>Loading form data...</p>
+      </div>
+
+      <!-- Error State -->
+      <div *ngIf="error && !loading" class="error-container">
+        <mat-icon class="error-icon">error_outline</mat-icon>
+        <h3>Error Loading Form</h3>
+        <p>{{ error }}</p>
+      </div>
+
+      <!-- Form Data Display -->
+      <div *ngIf="formData && !loading && !error && currentView === 'form'" class="form-display">
+        <!-- Header Card -->
+        <mat-card class="header-card">
+          <mat-card-header>
+            <div mat-card-avatar>
+              <mat-icon class="header-icon">assignment</mat-icon>
+            </div>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+            <!-- Form Title with Edit Button -->
+            <div class="title-section">
+              <mat-card-title>&nbsp;&nbsp;{{ formTitle || formData.originalJson?.title || formData.metadata.formName || 'Form Details' }}</mat-card-title>
+              <button 
+                mat-icon-button 
+                class="edit-title-btn"
+                (click)="editFormTitle(); $event.stopPropagation()"
+                aria-label="Edit form title"
+                title="Edit form title">
+                <mat-icon>edit</mat-icon>
+              </button>
+            </div>
+           
+          </mat-card-header>
+          <mat-card-actions align="end">
+            <button mat-button (click)="goBackToForms()">
+              <mat-icon>arrow_back</mat-icon>
+              Back
+            </button>
+          </mat-card-actions>
+        </mat-card>
+
+        <!-- Dynamic Form Rendering Card -->
+        <mat-card class="form-card" *ngIf="dynamicForm && fields.length > 0">
+          <mat-card-header>
+            <mat-card-title>Form Fields</mat-card-title>
+            <mat-card-subtitle>Interactive form with {{ fields.length }} fields</mat-card-subtitle>
+          </mat-card-header>
+          <mat-card-content class="form-content">
+            <form [formGroup]="dynamicForm" (ngSubmit)="onSubmit()" class="material-form">
+              <!-- Clean field rendering for all fields -->
+              <div *ngFor="let field of fields; let i = index">
+                <div class="form-field-container">
+                  <!-- Field Configuration Panel (Only show when mandatory or validation is configured) -->
+                  <div class="field-config-panel" *ngIf="hasRelevantConfiguration(field.name)">
+                    <div class="config-status">
+                      <span *ngFor="let config of getRelevantConfigurations(field.name)" class="config-badge">
+                        <mat-icon>{{ config === 'mandatory' ? 'star' : 'verified' }}</mat-icon>
+                        {{ config | titlecase }}
+                      </span>
+                    </div>
+                  </div>
+
+                  <!-- Label/Heading Fields -->
+                  <ng-container *ngIf="isLabelField(field)">
+                    <div class="label-field">
+                      <h3 class="form-label-heading">{{ field.name }}</h3>
+                    </div>
+                  </ng-container>
+
+                  <!-- Textarea Fields -->
+                  <ng-container *ngIf="isTextAreaField(field)">
+                    <div class="field-label">
+                      {{ field.name }}
+                      <span *ngIf="getFieldConfiguration(field.name).includes('mandatory')" class="required-indicator">*</span>
+                    </div>
+                    <mat-form-field appearance="outline" class="full-width textarea-field">
+                      <textarea matInput 
+                                [rows]="field.name.toLowerCase().includes('reason') ? 8 : 6"
+                                [formControlName]="sanitizeFieldName(field.name)"
+                                [placeholder]="'Enter your ' + field.name.toLowerCase()"></textarea>
+                      <mat-error *ngIf="getFieldConfiguration(field.name).includes('mandatory')">
+                        This field is required
+                      </mat-error>
+                    </mat-form-field>
+                  </ng-container>
+
+                  <!-- Signature Fields -->
+                  <ng-container *ngIf="isSignatureField(field)">
+                    <div class="field-label">
+                      {{ field.name }}
+                      <span *ngIf="getFieldConfiguration(field.name).includes('mandatory')" class="required-indicator">*</span>
+                    </div>
+                    <mat-form-field appearance="outline" class="full-width signature-field">
+                      <input matInput 
+                             type="text"
+                             [formControlName]="sanitizeFieldName(field.name)"
+                             placeholder="Click here to sign or type your signature" />
+                      <mat-icon matSuffix class="signature-icon">edit</mat-icon>
+                      <mat-error *ngIf="getFieldConfiguration(field.name).includes('mandatory')">
+                        This field is required
+                      </mat-error>
+                    </mat-form-field>
+                  </ng-container>
+
+                  <!-- Text/Number/Date Fields -->
+                  <ng-container *ngIf="field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'label' && !isTextAreaField(field) && !isSignatureField(field)">
+                    <div class="field-label">
+                      {{ field.name }}
+                      <span *ngIf="getFieldConfiguration(field.name).includes('mandatory')" class="required-indicator">*</span>
+                    </div>
+                    <mat-form-field appearance="outline" class="full-width">
+                      <input matInput 
+                             [type]="isDateField(field) ? 'date' : (isNumericField(field) ? 'number' : 'text')"
+                             [formControlName]="sanitizeFieldName(field.name)"
+                             [placeholder]="isDateField(field) ? 'Select ' + field.name.toLowerCase() : (isNumericField(field) ? 'Enter ' + field.name.toLowerCase() : 'Enter your ' + field.name.toLowerCase())" />
+                      <mat-error *ngIf="getFieldConfiguration(field.name).includes('mandatory')">
+                        This field is required
+                      </mat-error>
+                    </mat-form-field>
+                  </ng-container>
+
+                  <!-- Select/Dropdown Fields -->
+                  <ng-container *ngIf="field.type === 'select'">
+                    <div class="field-label">
+                      {{ field.name }}
+                      <span *ngIf="getFieldConfiguration(field.name).includes('mandatory')" class="required-indicator">*</span>
+                    </div>
+                    <mat-form-field appearance="outline" class="full-width">
+                      <mat-select [formControlName]="sanitizeFieldName(field.name)" 
+                                  [placeholder]="'Select ' + field.name.toLowerCase()">
+                        <mat-option *ngFor="let option of field.options" [value]="option">
+                          {{ option }}
+                        </mat-option>
+                      </mat-select>
+                      <mat-error *ngIf="getFieldConfiguration(field.name).includes('mandatory')">
+                        This field is required
+                      </mat-error>
+                    </mat-form-field>
+                  </ng-container>
+
+                  <!-- Single Checkbox -->
+                  <ng-container *ngIf="field.type === 'checkbox' && !isCheckboxGroup(field)">
+                    <div class="single-checkbox-container">
+                      <mat-checkbox [formControlName]="sanitizeFieldName(field.name)">
+                        <div class="checkbox-label-wrapper">
+                          <span class="checkbox-label-text">{{ field.name }}</span>
+                          <span *ngIf="getFieldConfiguration(field.name).includes('mandatory')" class="required-indicator">*</span>
+                        </div>
+                      </mat-checkbox>
+                    </div>
+                  </ng-container>
+
+                  <!-- Checkbox Group -->
+                  <ng-container *ngIf="field.type === 'checkbox' && isCheckboxGroup(field)">
+                    <div [formGroupName]="sanitizeFieldName(field.name)" class="checkbox-group">
+                      <label class="group-label">
+                        <div class="group-label-wrapper">
+                          <span class="group-label-text">{{ field.name }}:</span>
+                          <span *ngIf="getFieldConfiguration(field.name).includes('mandatory')" class="required-indicator">*</span>
+                        </div>
+                      </label>
+                      <div *ngFor="let option of objectKeys(field.value)" class="checkbox-item">
+                        <mat-checkbox [formControlName]="option">
+                          {{ option }}
+                        </mat-checkbox>
+                      </div>
+                    </div>
+                  </ng-container>
+                </div>
+              </div>
+            </form>
+          </mat-card-content>
+          <mat-card-actions align="end">
+            <button mat-raised-button 
+                    color="accent" 
+                    type="button"
+                    [disabled]="isSavingFormData"
+                    (click)="saveFormData()"
+                    style="margin-right: 12px;">
+              <mat-spinner *ngIf="isSavingFormData" diameter="20" style="margin-right: 8px;"></mat-spinner>
+              <mat-icon *ngIf="!isSavingFormData" style="margin-right: 8px;">send</mat-icon>
+              {{ isSavingFormData ? 'Submitting...' : 'Submit Form Data' }}
+            </button>
+          </mat-card-actions>
+        </mat-card>
+
+        <!-- Metadata Section Card -->
+        <mat-card class="metadata-card">
+          <mat-card-header>
+            <mat-card-title>Form Metadata</mat-card-title>
+            <mat-card-subtitle>
+              <div class="form-meta">
+                <span class="meta-item">
+                  <mat-icon>schedule</mat-icon>
+                  Created: {{ formData.metadata.createdAt | date:'medium' }}
+                </span><br>
+                <span class="meta-item">
+                  <mat-icon>assignment</mat-icon>
+                  Form ID: {{ formData._id }}
+                </span><br>
+                <span class="meta-item" *ngIf="formData.pdfMetadata?.hashes?.json_fingerprint">
+                  <mat-icon>fingerprint</mat-icon>
+                  JSON Fingerprint: {{ formData.pdfMetadata.hashes.json_fingerprint }}
+                </span>
+              </div>
+            </mat-card-subtitle>
+          </mat-card-header>
+          <mat-card-content>
+            <div class="metadata-grid">
+              <div class="metadata-item">
+                <span class="metadata-label">Form Name:</span>
+                <span class="metadata-value">{{ formData.metadata.formName }}</span>
+              </div>
+              <div class="metadata-item">
+                <span class="metadata-label">Version:</span>
+                <span class="metadata-value">{{ formData.metadata.version }}</span>
+              </div>
+              <div class="metadata-item">
+                <span class="metadata-label">Total Fields:</span>
+                <span class="metadata-value">{{ formData.formData.length }}</span>
+              </div>
+            </div>
+          </mat-card-content>
+        </mat-card>
+      </div>
+
+      <!-- Confirmation Page -->
+      <div *ngIf="currentView === 'confirmation' && confirmationData" class="confirmation-display">
+        <app-form-data-confirmation
+          [formId]="confirmationData.formId"
+          [formTitle]="confirmationData.formTitle"
+          [submissionId]="confirmationData.submissionId"
+          [submittedAt]="confirmationData.submittedAt"
+          [isUpdate]="confirmationData.isUpdate"
+          [filledFields]="confirmationData.filledFields"
+          [totalFields]="confirmationData.totalFields"
+          (backToForm)="onBackToForm()"
+          (viewFormData)="onViewFormData()"
+          (goToFormsList)="onGoToFormsList()">
+        </app-form-data-confirmation>
+      </div>
+    </div>
+  </div>
+</div>

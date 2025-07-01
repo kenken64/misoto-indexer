@@ -1,0 +1,928 @@
+/* Form Editor Container - using global layout pattern */
+.form-editor-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100%;
+  background-color: #f5f5f5;
+  overflow: hidden; /* Prevent container from scrolling */
+}
+
+/* Ensure subtitle is always visible in form editor */
+.form-editor-container ::ng-deep .app-subtitle {
+  display: inline !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+/* Main Content Area - follows global layout pattern */
+.main-content {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  background-color: #f5f5f5;
+  overflow: hidden;
+  height: 100vh; /* Full viewport height */
+}
+
+/* Editor Header */
+.editor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 24px;
+  
+  color: white;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  z-index: 5;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+  min-width: 0;
+}
+
+.form-info {
+  display: flex;
+  flex-direction: row;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.form-title-field {
+  width: 250px;
+  flex-shrink: 0;
+}
+
+.form-title-field .mat-mdc-text-field-wrapper {
+  background-color: rgba(255, 255, 255, 0.98) !important;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.5) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+}
+
+.form-title-field .mat-mdc-form-field-outline {
+  color: rgba(255, 255, 255, 0.6) !important;
+}
+
+.form-title-field .mat-mdc-form-field-outline-thick {
+  color: rgba(255, 255, 255, 0.8) !important;
+}
+
+.form-title-field input {
+  color: #333 !important;
+  background-color: transparent;
+}
+
+.form-title-field .mat-mdc-form-field-label {
+  color: white !important;
+  font-weight: 500;
+}
+
+.form-title-field.mat-focused .mat-mdc-form-field-label {
+  color: white !important;
+}
+
+.form-title-field:hover .mat-mdc-form-field-label {
+  color: white !important;
+}
+
+.form-title-field.mat-focused .mat-mdc-form-field-outline-thick {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.form-description-field {
+  width: 280px;
+  flex-shrink: 0;
+}
+
+.form-description-field .mat-mdc-text-field-wrapper {
+  background-color: rgba(255, 255, 255, 0.98) !important;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.5) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+}
+
+.form-description-field .mat-mdc-form-field-outline {
+  color: rgba(255, 255, 255, 0.6) !important;
+}
+
+.form-description-field .mat-mdc-form-field-outline-thick {
+  color: rgba(255, 255, 255, 0.8) !important;
+}
+
+.form-description-field input {
+  color: #333 !important;
+  background-color: transparent;
+}
+
+.form-description-field .mat-mdc-form-field-label {
+  color: white !important;
+  font-weight: 500;
+}
+
+.form-description-field.mat-focused .mat-mdc-form-field-label {
+  color: white !important;
+}
+
+.form-description-field:hover .mat-mdc-form-field-label {
+  color: white !important;
+}
+
+.form-description-field.mat-focused .mat-mdc-form-field-outline-thick {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.header-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.header-actions .mat-stroked-button {
+  color: white !important;
+  background-color: rgba(255, 255, 255, 0.15) !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  transition: all 0.3s ease;
+  box-shadow: none !important;
+  min-width: 120px;
+  height: 40px;
+  font-weight: 500;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.header-actions .mat-stroked-button mat-icon {
+  color: white !important;
+  font-size: 18px;
+}
+
+.header-actions .mat-stroked-button:hover {
+  background-color: rgba(255, 255, 255, 0.25) !important;
+  border-color: rgba(255, 255, 255, 0.5) !important;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+}
+
+.header-actions .mat-stroked-button:disabled {
+  color: rgba(255, 255, 255, 0.3) !important;
+  background-color: rgba(255, 255, 255, 0.05) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  transform: none;
+  box-shadow: none !important;
+  cursor: not-allowed;
+}
+
+.header-actions .mat-raised-button {
+  color: white !important;
+  background-color: rgba(255, 255, 255, 0.15) !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  transition: all 0.3s ease;
+  box-shadow: none !important;
+  min-width: 120px;
+  height: 40px;
+  font-weight: 500;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.header-actions .mat-raised-button mat-icon {
+  color: white !important;
+  font-size: 18px;
+}
+
+.header-actions .mat-raised-button:hover {
+  background-color: rgba(255, 255, 255, 0.25) !important;
+  border-color: rgba(255, 255, 255, 0.5) !important;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+}
+
+.header-actions .mat-raised-button:disabled {
+  color: rgba(255, 255, 255, 0.3) !important;
+  background-color: rgba(255, 255, 255, 0.05) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  transform: none;
+  box-shadow: none !important;
+  cursor: not-allowed;
+}
+
+/* Loading and Error States */
+.loading-container,
+.error-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 64px;
+  text-align: center;
+}
+
+.error-container mat-icon {
+  font-size: 48px;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 16px;
+}
+
+/* Main Editor Layout */
+.editor-main {
+  display: flex;
+  flex: 1;
+  height: calc(100vh - 160px); /* Fixed height to enable independent scrolling */
+  overflow: hidden;
+  min-height: 600px; /* Ensure minimum usable height */
+}
+
+/* Sidebar - Element Palette */
+.sidebar {
+  width: 280px;
+  background-color: white;
+  border-right: 1px solid #e0e0e0;
+  flex-shrink: 0;
+  box-shadow: 2px 0 4px rgba(0, 0, 0, 0.05);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* Prevent sidebar from scrolling as a whole */
+}
+
+.sidebar-header {
+  padding: 20px;
+  border-bottom: 1px solid #e0e0e0;
+  flex-shrink: 0; /* Prevent header from shrinking */
+  background-color: white;
+  z-index: 1;
+}
+
+.sidebar-header h3 {
+  margin: 0 0 8px 0;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.sidebar-header p {
+  margin: 0;
+  color: #757575;
+  font-size: 14px;
+}
+
+.elements-palette {
+  padding: 16px;
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  height: 100%;
+  /* Enable smooth scrolling for the palette */
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+}
+
+.palette-element {
+  display: flex;
+  align-items: center;
+  padding: 12px;
+  margin-bottom: 8px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  background-color: #fafafa;
+  cursor: grab;
+  transition: all 0.2s ease;
+}
+
+.palette-element:hover {
+  background-color: #f0f0f0;
+  border-color: #1976d2;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.palette-element:active {
+  cursor: grabbing;
+}
+
+.element-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.element-content mat-icon {
+  color: #1976d2;
+  font-size: 20px;
+  width: 20px;
+  height: 20px;
+}
+
+.element-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.element-label {
+  font-weight: 500;
+  font-size: 14px;
+  color: #333;
+}
+
+.element-description {
+  font-size: 12px;
+  color: #757575;
+}
+
+.drag-placeholder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  background-color: #e3f2fd;
+  border: 1px dashed #1976d2;
+  border-radius: 4px;
+  color: #1976d2;
+  font-size: 14px;
+}
+
+/* Form Builder Area */
+.form-builder {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0; /* Ensure flex item can shrink */
+  height: 100%;
+  background-color: #f5f5f5;
+}
+
+.builder-header {
+  padding: 20px 24px;
+  background-color: white;
+  border-bottom: 1px solid #e0e0e0;
+  flex-shrink: 0; /* Prevent header from shrinking */
+  z-index: 1;
+}
+
+.builder-header h3 {
+  margin: 0 0 8px 0;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.builder-header p {
+  margin: 0;
+  color: #757575;
+  font-size: 14px;
+}
+
+.form-preview {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 24px;
+  width: 100%;
+  box-sizing: border-box;
+  height: 100%;
+  /* Enable smooth scrolling for the form preview */
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+}
+
+.form-title-display {
+  background-color: white;
+  padding: 24px;
+  border-radius: 8px;
+  margin-bottom: 24px;
+  border: 1px solid #e0e0e0;
+}
+
+.form-title-display h2 {
+  margin: 0 0 8px 0;
+  font-size: 24px;
+  font-weight: 400;
+  color: #333;
+}
+
+.form-title-display p {
+  margin: 0;
+  color: #757575;
+  font-size: 16px;
+}
+
+/* Drop Zone */
+.drop-zone {
+  min-height: 400px;
+  background-color: white;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+  padding: 24px;
+  width: 100%;
+  box-sizing: border-box;
+  transition: all 0.3s ease;
+}
+
+.drop-zone.cdk-drop-list-dragging {
+  background-color: #f8f9fa;
+  border-color: #1976d2;
+  border-style: dashed;
+}
+
+.drop-zone.cdk-drop-list-receiving {
+  background-color: #e3f2fd;
+  border-color: #1976d2;
+  border-width: 2px;
+}
+
+.empty-form {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 300px;
+  color: #757575;
+  text-align: center;
+}
+
+.empty-form mat-icon {
+  font-size: 48px;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 16px;
+  color: #bdbdbd;
+}
+
+/* Form Element Container */
+.form-element-container {
+  position: relative;
+  margin-bottom: 24px;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background-color: #fafafa;
+  transition: all 0.2s ease;
+  width: 100%;
+  box-sizing: border-box;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.form-element-container:hover {
+  border-color: #e0e0e0;
+  background-color: #f5f5f5;
+}
+
+.form-element-container.selected {
+  border-color: #1976d2;
+  background-color: #e3f2fd;
+}
+
+.form-element-container.cdk-drag-animating {
+  transition: transform 250ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+/* Element Controls at Top */
+.element-controls-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background-color: rgba(25, 118, 210, 0.05);
+  border-bottom: 1px solid rgba(25, 118, 210, 0.1);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  position: relative;
+  z-index: 2;
+}
+
+.form-element-container:hover .element-controls-top,
+.form-element-container.selected .element-controls-top {
+  opacity: 1;
+}
+
+.element-info-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.element-type-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #1976d2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.element-type-badge {
+  font-size: 10px;
+  font-weight: 500;
+  color: #666;
+  background-color: rgba(0, 0, 0, 0.05);
+  padding: 2px 6px;
+  border-radius: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.element-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.element-actions button {
+  width: 28px;
+  height: 28px;
+  line-height: 28px;
+}
+
+.element-actions .mat-icon-button {
+  --mdc-icon-button-state-layer-size: 28px;
+  --mdc-icon-button-icon-size: 16px;
+}
+
+.element-actions .mat-icon {
+  font-size: 16px;
+  width: 16px;
+  height: 16px;
+}
+
+.duplicate-btn {
+  color: #1976d2;
+}
+
+.delete-btn {
+  color: #f44336;
+}
+
+.drag-handle {
+  color: #757575;
+  cursor: grab;
+  font-size: 16px !important;
+  width: 16px !important;
+  height: 16px !important;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+/* Form Element Content */
+.form-element {
+  padding: 16px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Legacy element-controls class - keep for backward compatibility but hide */
+.element-controls {
+  display: none;
+}
+
+.element-placeholder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  background-color: #e3f2fd;
+  border: 1px dashed #1976d2;
+  border-radius: 4px;
+  color: #1976d2;
+  font-size: 14px;
+}
+
+/* Form Elements */
+.form-element {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.full-width {
+  width: 100%;
+}
+
+.form-label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 500;
+  color: #333;
+}
+
+.required {
+  color: #f44336;
+}
+
+.radio-group,
+.checkbox-group {
+  margin-bottom: 16px;
+}
+
+.radio-options,
+.checkbox-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.radio-option,
+.checkbox-option {
+  margin-bottom: 8px;
+}
+
+.file-upload {
+  margin-bottom: 16px;
+}
+
+.file-input-area {
+  border: 2px dashed #bdbdbd;
+  border-radius: 8px;
+  padding: 32px;
+  text-align: center;
+  color: #757575;
+  background-color: #fafafa;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.file-input-area:hover {
+  border-color: #1976d2;
+  background-color: #f5f5f5;
+}
+
+.file-input-area mat-icon {
+  font-size: 32px;
+  width: 32px;
+  height: 32px;
+  margin-bottom: 8px;
+}
+
+.label-element h3 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 500;
+  color: #333;
+}
+
+.label-element .label-heading {
+  margin: 0 0 8px 0;
+  font-size: 20px;
+  font-weight: 500;
+  color: #333;
+  border-left: 4px solid #2196f3;
+  padding-left: 12px;
+  background-color: #f8f9fa;
+  padding: 8px 12px;
+  border-radius: 4px;
+}
+
+.label-element .label-helper-text {
+  font-style: italic;
+}
+
+.debug-info {
+  background-color: #fff3cd;
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid #ffeaa7;
+}
+
+.unknown-element {
+  border: 2px dashed #f44336;
+  padding: 8px;
+  border-radius: 4px;
+  background-color: #ffeaea;
+}
+
+/* Properties Panel */
+.properties-panel {
+  width: 320px;
+  background-color: white;
+  border-left: 1px solid #e0e0e0;
+  flex-shrink: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* Prevent panel from scrolling as a whole */
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  border-bottom: 1px solid #e0e0e0;
+  flex-shrink: 0; /* Prevent header from shrinking */
+  background-color: white;
+  z-index: 1;
+}
+
+.panel-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.properties-content {
+  padding: 20px;
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  height: 100%;
+  /* Enable smooth scrolling for the properties content */
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+}
+
+.property-group {
+  margin-bottom: 24px;
+}
+
+.property-group h4 {
+  margin: 0 0 16px 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: #1976d2;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.option-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.option-input {
+  flex: 1;
+}
+
+.add-option-btn {
+  width: 100%;
+  margin-top: 8px;
+}
+
+/* CDK Drag and Drop */
+.cdk-drag-preview {
+  box-sizing: border-box;
+  border-radius: 8px;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+  background-color: white;
+  border: 1px solid #e0e0e0;
+}
+
+.cdk-drag-placeholder {
+  opacity: 0.5;
+}
+
+.cdk-drop-list-dragging .form-element-container:not(.cdk-drag-placeholder) {
+  transition: transform 250ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+/* Custom Scrollbar Styling */
+.elements-palette::-webkit-scrollbar,
+.form-preview::-webkit-scrollbar,
+.properties-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.elements-palette::-webkit-scrollbar-track,
+.form-preview::-webkit-scrollbar-track,
+.properties-content::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.elements-palette::-webkit-scrollbar-thumb,
+.form-preview::-webkit-scrollbar-thumb,
+.properties-content::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+.elements-palette::-webkit-scrollbar-thumb:hover,
+.form-preview::-webkit-scrollbar-thumb:hover,
+.properties-content::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* Responsive Design */
+@media (max-width: 1200px) {
+  .properties-panel {
+    width: 280px;
+  }
+}
+
+@media (max-width: 768px) {
+  .editor-main {
+    flex-direction: column;
+  }
+  
+  .sidebar {
+    width: 100%;
+    height: 200px;
+    border-right: none;
+    border-bottom: 1px solid #e0e0e0;
+  }
+  
+  .properties-panel {
+    width: 100%;
+    height: 250px;
+    border-left: none;
+    border-top: 1px solid #e0e0e0;
+  }
+  
+  .form-builder {
+    flex: 1;
+    min-height: 300px;
+  }
+  
+  .header-left {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  
+  .form-title-field,
+  .form-description-field {
+    width: 250px;
+  }
+}
+
+/* Additional overrides for better visibility on gradient background */
+::ng-deep .form-title-field .mat-mdc-text-field-wrapper,
+::ng-deep .form-description-field .mat-mdc-text-field-wrapper {
+  background-color: rgba(255, 255, 255, 0.98) !important;
+  border: 1px solid rgba(255, 255, 255, 0.5) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+  backdrop-filter: blur(10px) !important;
+}
+
+::ng-deep .form-title-field .mat-mdc-form-field-infix,
+::ng-deep .form-description-field .mat-mdc-form-field-infix {
+  background-color: transparent !important;
+}
+
+::ng-deep .form-title-field .mat-mdc-form-field-outline,
+::ng-deep .form-description-field .mat-mdc-form-field-outline {
+  color: rgba(255, 255, 255, 0.6) !important;
+}
+
+::ng-deep .form-title-field.mat-focused .mat-mdc-form-field-outline-thick,
+::ng-deep .form-description-field.mat-focused .mat-mdc-form-field-outline-thick {
+  color: rgba(255, 255, 255, 0.9) !important;
+  border-width: 2px !important;
+}
+
+::ng-deep .form-title-field .mat-mdc-form-field-label,
+::ng-deep .form-description-field .mat-mdc-form-field-label {
+  color: white !important;
+  font-weight: 500 !important;
+}
+
+::ng-deep .form-title-field input,
+::ng-deep .form-description-field input {
+  color: #333 !important;
+  font-weight: 500 !important;
+}
+
+/* Auto-save indicator styles */
+.auto-save-hint {
+  display: flex !important;
+  align-items: center !important;
+  color: #4CAF50 !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+}
+
+.auto-save-icon {
+  font-size: 14px !important;
+  height: 14px !important;
+  width: 14px !important;
+  margin-right: 4px !important;
+  animation: spin 1s linear infinite !important;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Auto-save snackbar styles */
+::ng-deep .auto-save-snackbar {
+  background-color: #4CAF50 !important;
+  color: white !important;
+  font-weight: 500 !important;
+}

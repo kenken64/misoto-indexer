@@ -117,7 +117,7 @@ public class IndexingConfiguration {
      * Processing configuration nested class
      */
     public static class ProcessingConfig {
-        private int batchSize = 20;
+        private int batchSize = 10000; // Large batch size to process all files at once
         private int maxFileSize = 1024 * 1024; // 1MB
         private int chunkSize = 3000;
         private int chunkOverlap = 500;

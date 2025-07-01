@@ -1,0 +1,10 @@
+<div>
+    <mat-form-field appearance="fill" style="width: 100%;">
+        <mat-label>Select a city</mat-label>
+        <mat-select [(value)]="selectedCity">
+          <mat-option *ngFor="let c of citiesList$ | async" [value]="c.code">
+            {{ c.city_name }}
+          </mat-option>
+        </mat-select>
+      </mat-form-field>
+</div>

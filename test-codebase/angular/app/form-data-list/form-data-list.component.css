@@ -1,0 +1,469 @@
+/* Main Layout */
+.app-container {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  width: 100%;
+}
+
+.form-data-container {
+  padding: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Global Search Section */
+.global-search-section {
+  margin-bottom: 24px;
+  padding: 16px 0;
+  width: 100%;
+}
+
+.search-container-centered {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.search-container-centered .search-field {
+  width: 400px;
+  max-width: 400px;
+  min-width: 300px;
+}
+
+.search-buttons {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.search-container-centered button {
+  white-space: nowrap;
+  min-width: 80px;
+  height: 40px;
+}
+
+/* Section Divider */
+.section-divider {
+  margin: 24px 0;
+  border-color: #e0e0e0;
+}
+
+.header-section {
+  margin-bottom: 32px;
+}
+
+.page-title {
+  font-size: 2rem;
+  font-weight: 500;
+  margin: 0 0 8px 0;
+  color: #1976d2;
+}
+
+.page-description {
+  font-size: 1rem;
+  color: #666;
+  margin: 0;
+}
+
+.controls-section {
+  margin-bottom: 24px;
+}
+
+.search-container {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+.search-field {
+  flex: 1;
+  max-width: 600px;
+}
+
+.loading-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  text-align: center;
+}
+
+.loading-container p {
+  margin-top: 16px;
+  color: #666;
+}
+
+.error-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
+  color: #d32f2f;
+}
+
+.error-container mat-icon {
+  font-size: 48px;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 16px;
+}
+
+.error-container p {
+  margin: 0 0 16px 0;
+  font-size: 1.1rem;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 40px 20px;
+  color: #666;
+}
+
+.empty-icon {
+  font-size: 64px;
+  width: 64px;
+  height: 64px;
+  color: #ccc;
+  margin-bottom: 24px;
+}
+
+.empty-state h3 {
+  margin: 0 0 8px 0;
+  color: #333;
+}
+
+.empty-state p {
+  margin: 0;
+  color: #666;
+}
+
+.submissions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  gap: 24px;
+  margin-bottom: 32px;
+}
+
+.submission-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.submission-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.submission-card mat-card-header {
+  padding-bottom: 8px;
+}
+
+.submission-card mat-card-title {
+  font-size: 1.1rem;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.submission-card mat-card-subtitle {
+  font-size: 0.9rem;
+  color: #666;
+  line-height: 1.4;
+}
+
+.submission-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.stat-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.9rem;
+}
+
+.stat-label {
+  color: #666;
+  font-weight: 500;
+}
+
+.stat-value {
+  color: #333;
+  font-weight: 600;
+}
+
+.submission-card mat-card-actions {
+  padding: 8px 16px 16px 16px;
+  display: flex;
+  gap: 8px;
+}
+
+.submission-card mat-card-actions button {
+  font-size: 0.875rem;
+}
+
+.pagination-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px 0;
+  border-top: 1px solid #e0e0e0;
+}
+
+/* Pagination Wrapper */
+.pagination-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 24px 0;
+  border-top: 1px solid #e0e0e0;
+}
+
+.pagination-info {
+  font-size: 0.9rem;
+  color: #666;
+  font-weight: 500;
+  text-align: center;
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pagination-btn {
+  min-width: 100px;
+  font-size: 0.875rem;
+}
+
+.pagination-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.page-numbers {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 16px;
+}
+
+.page-number-btn {
+  min-width: 40px;
+  height: 40px;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.page-number-btn.active {
+  background-color: #1976d2;
+  color: white;
+}
+
+.page-number-btn:not(.active):hover {
+  background-color: #f5f5f5;
+}
+
+.page-info {
+  font-size: 0.9rem;
+  color: #666;
+  font-weight: 500;
+}
+
+/* Filtering Notice */
+.filtering-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  background-color: #e3f2fd;
+  border: 1px solid #2196f3;
+  border-radius: 8px;
+  color: #1976d2;
+  font-size: 0.9rem;
+}
+
+.filtering-notice mat-icon {
+  font-size: 1.2rem;
+  width: 1.2rem;
+  height: 1.2rem;
+}
+
+/* Tab Styles */
+.tab-container {
+  margin-top: 24px;
+}
+
+.mat-mdc-tab-group {
+  margin-bottom: 24px;
+}
+
+.mat-mdc-tab-header {
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.public-submissions-container {
+  padding: 16px 0;
+}
+
+.public-table-container {
+  margin-top: 16px;
+}
+
+.public-submissions-table {
+  width: 100%;
+  margin-top: 16px;
+}
+
+.public-submissions-table .mat-column-actions {
+  width: 200px;
+  text-align: right;
+}
+
+.public-submissions-table .mat-column-submissionCount {
+  width: 120px;
+  text-align: center;
+}
+
+.public-submissions-table .mat-column-latestSubmission {
+  width: 150px;
+}
+
+/* Form ID styling */
+.form-id {
+  font-family: 'Courier New', monospace;
+  font-size: 0.85em;
+  background-color: #f5f5f5;
+  padding: 2px 6px;
+  border-radius: 3px;
+  color: #333;
+}
+
+/* Form description styling */
+.form-description {
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+  color: #666;
+  font-style: italic;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.action-buttons .mat-mdc-button {
+  min-width: auto;
+  padding: 0 8px;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .form-data-container {
+    padding: 16px;
+  }
+  
+  .submissions-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  
+  .search-container {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .search-field {
+    max-width: none;
+  }
+  
+  .submission-card mat-card-actions {
+    flex-wrap: wrap;
+  }
+  
+  .pagination-wrapper {
+    gap: 12px;
+  }
+  
+  .pagination-controls {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  
+  .page-numbers {
+    margin: 0 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+}
+
+/* Responsive Design for Search */
+@media (max-width: 768px) {
+  .search-container-centered {
+    flex-direction: column;
+    gap: 12px;
+    align-items: center;
+  }
+  
+  .search-container-centered .search-field {
+    width: 100%;
+    max-width: 400px;
+    min-width: unset;
+  }
+  
+  .search-buttons {
+    justify-content: center;
+  }
+  
+  .search-container-centered button {
+    width: auto;
+    min-width: 120px;
+  }
+}
+
+@media (min-width: 769px) {
+  .search-container-centered {
+    flex-direction: row;
+  }
+}
+
+/* Ensure consistent button styling */
+.search-container-centered .mat-raised-button,
+.search-container-centered .mat-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+}
+
+/* Make sure form field has consistent height */
+.search-container-centered .mat-form-field {
+  font-size: 14px;
+}
+
+.search-container-centered .mat-form-field .mat-form-field-wrapper {
+  padding-bottom: 0;
+}

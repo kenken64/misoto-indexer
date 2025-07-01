@@ -1,0 +1,19 @@
+<header class="dashboard-header">
+  <div class="header-content">
+    <div class="header-left">
+      <mat-icon class="app-icon">assignment</mat-icon>
+      <h1>FormBT</h1>
+      <span class="app-subtitle">{{ subtitle === 'Settings' ? ('header.settings.subtitle' | translate) : (subtitle || ('header.default.subtitle' | translate)) }}</span>
+    </div>
+    <div class="header-right">
+      <span class="user-info">{{ 'header.welcome' | translate }} {{ authService.getCurrentUser()?.username }}</span>
+      <button mat-icon-button (click)="navigateToDebugForms()" class="debug-button">
+        <mat-icon>bug_report</mat-icon>
+      </button>
+      <button mat-button (click)="logout()" class="logout-button">
+        <mat-icon>logout</mat-icon>
+        <span>{{ 'header.logout' | translate }}</span>
+      </button>
+    </div>
+  </div>
+</header>

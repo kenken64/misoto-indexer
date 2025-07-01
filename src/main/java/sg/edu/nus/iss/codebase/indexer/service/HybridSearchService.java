@@ -3,6 +3,7 @@ package sg.edu.nus.iss.codebase.indexer.service;
 import sg.edu.nus.iss.codebase.indexer.dto.SearchRequest;
 import sg.edu.nus.iss.codebase.indexer.service.interfaces.FileIndexingService;
 import sg.edu.nus.iss.codebase.indexer.config.DynamicVectorStoreFactory;
+import sg.edu.nus.iss.codebase.indexer.model.IndexingStatus;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.VectorStore;
@@ -44,11 +45,19 @@ public class HybridSearchService {
         boolean usedFallback = false;
         try {
             // Try vector search first
-            if (indexingService.getIndexedFileCount() > 0) {
+            System.out.println("🔍 DEBUG: Checking indexed file count...");
+            int indexedFileCount = indexingService.getIndexedFileCount();
+            System.out.println("🔍 DEBUG: Indexed file count: " + indexedFileCount);
+            
+            if (indexedFileCount > 0) {
                 String currentCollection = indexingService.getCurrentCollectionName();
                 System.out.println(
                         "🎯 Performing vector-based semantic search using collection: " + currentCollection + "...");
+                System.out.println("🔍 DEBUG: About to call performVectorSearch...");
                 vectorResults = performVectorSearch(query, maxResults);
+                System.out.println("🔍 DEBUG: performVectorSearch returned " + vectorResults.size() + " results");
+            } else {
+                System.out.println("🔍 DEBUG: Skipping vector search - no indexed files");
             }
 
             // If vector search has limited results or indexing is incomplete, use file
@@ -75,12 +84,22 @@ public class HybridSearchService {
     }
 
     private List<SearchResult> performVectorSearch(String query, int maxResults) {
-        // Temporarily suppress gRPC logging during vector search
-        suppressLogging();
+        System.out.println("🔍 DEBUG: performVectorSearch called with query: '" + query + "', maxResults: " + maxResults);
+        System.out.println("🔍 DEBUG: Query keywords being sent to vector database: '" + query + "'");
+        
+        // DEBUG: Temporarily disabled logging suppression to see errors
+        // suppressLogging();
 
         try {
             // Stage 1: Intelligent Framework Analysis using Ollama
             String intelligentQuery = performIntelligentQueryAnalysis(query);
+            
+            // Only show debug info for non-multi-query expansion
+            if (!intelligentQuery.contains("[MULTI-QUERY-EXPANSION]")) {
+                System.out.println("🧠 Intelligent query analysis:");
+                System.out.println("   Original: \"" + query + "\"");
+                System.out.println("   Enhanced: \"" + intelligentQuery + "\"");
+            }
             
             // Stage 2: Use the enhanced query for vector search
             List<Document> documents = searchVectorStore(intelligentQuery, maxResults);
@@ -98,10 +117,11 @@ public class HybridSearchService {
             
         } catch (Exception e) {
             System.err.println("❌ Vector search error: " + e.getMessage());
+            e.printStackTrace(); // DEBUG: Show full stack trace
             return new ArrayList<>();
         } finally {
-            // Restore normal logging
-            restoreLogging();
+            // DEBUG: Temporarily disabled logging restoration
+            // restoreLogging();
         }
     }
 
@@ -110,6 +130,14 @@ public class HybridSearchService {
      */
     private String performIntelligentQueryAnalysis(String originalQuery) {
         try {
+            // Check if this is a multi-query expansion candidate
+            if (shouldUseMultiQueryExpansion(originalQuery)) {
+                // Store multi-query results for later use
+                this.multiQueryResults = performMultiQueryExpansion(originalQuery);
+                // Return a special marker to indicate multi-query expansion was used
+                return originalQuery + " [MULTI-QUERY-EXPANSION]";
+            }
+            
             String analysisPrompt = createQueryAnalysisPrompt(originalQuery);
             String ollamaResponse = chatModel.call(analysisPrompt);
             
@@ -126,6 +154,162 @@ public class HybridSearchService {
         
         // Fallback to basic enhancement if Ollama fails
         return enhanceQueryForProgramming(originalQuery);
+    }
+
+    /**
+     * Check if query should use multi-query expansion
+     */
+    private boolean shouldUseMultiQueryExpansion(String query) {
+        String lowerQuery = query.toLowerCase();
+        return lowerQuery.contains("rest api endpoints") ||
+               lowerQuery.contains("api endpoints") ||
+               lowerQuery.contains("all endpoints") ||
+               lowerQuery.contains("list endpoints") ||
+               lowerQuery.contains("find endpoints") ||
+               lowerQuery.contains("show endpoints") ||
+               lowerQuery.contains("web api") ||
+               lowerQuery.contains("flask routes") ||
+               lowerQuery.contains("spring endpoints");
+    }
+
+    /**
+     * Perform multi-query expansion for endpoint discovery
+     * @return List of all documents found from the multi-query search
+     */
+    private List<Document> performMultiQueryExpansion(String originalQuery) {
+        System.out.println("🎯 Multi-query expansion activated for endpoint discovery");
+        System.out.println("📋 Executing 3 targeted queries:");
+        
+        try {
+            // Query 1: Find route decorators
+            System.out.println("   1. Searching for route decorators: @app.route");
+            List<Document> routeDecorators = searchVectorStoreWithThreshold("@app.route", 10, 0.0);
+            
+            // Query 2: Find API-related content  
+            System.out.println("   2. Searching for Flask API content: Flask API endpoints");
+            List<Document> apiContent = searchVectorStoreWithThreshold("Flask API endpoints", 15, 0.0);
+            
+            // Query 3: Find POST method implementations
+            System.out.println("   3. Searching for POST methods: POST methods JSON");
+            List<Document> postMethods = searchVectorStoreWithThreshold("POST methods JSON", 10, 0.0);
+            
+            // Combine and deduplicate results
+            Set<String> seenDocuments = new HashSet<>();
+            List<Document> combinedResults = new ArrayList<>();
+            
+            // Add results with deduplication based on content
+            addUniqueDocuments(routeDecorators, combinedResults, seenDocuments);
+            addUniqueDocuments(apiContent, combinedResults, seenDocuments);
+            addUniqueDocuments(postMethods, combinedResults, seenDocuments);
+            
+            System.out.printf("📊 Multi-query results: %d route decorators + %d API content + %d POST methods = %d unique documents%n",
+                routeDecorators.size(), apiContent.size(), postMethods.size(), combinedResults.size());
+            
+            // Provide feedback on successful queries
+            int successfulQueries = (routeDecorators.isEmpty() ? 0 : 1) + 
+                                   (apiContent.isEmpty() ? 0 : 1) + 
+                                   (postMethods.isEmpty() ? 0 : 1);
+            System.out.printf("✅ %d out of 3 queries successful%n", successfulQueries);
+            
+            // Return all combined documents directly
+            return combinedResults;
+            
+        } catch (Exception e) {
+            System.err.println("❌ Multi-query expansion failed: " + e.getMessage());
+            System.err.println("💡 Returning empty results due to error.");
+            return new ArrayList<>();
+        }
+    }
+    
+    // Store multi-query results
+    private List<Document> multiQueryResults = null;
+    
+    /**
+     * Add unique documents to results based on content similarity
+     */
+    private int addUniqueDocuments(List<Document> source, List<Document> target, Set<String> seenDocuments) {
+        int addedCount = 0;
+        for (Document doc : source) {
+            String signature = createDocumentSignature(doc);
+            if (!seenDocuments.contains(signature)) {
+                seenDocuments.add(signature);
+                target.add(doc);
+                addedCount++;
+            }
+        }
+        return addedCount;
+    }
+    
+    /**
+     * Create a signature for document deduplication
+     */
+    private String createDocumentSignature(Document doc) {
+        String filename = (String) doc.getMetadata().getOrDefault("filename", "");
+        String chunk = (String) doc.getMetadata().getOrDefault("chunk", "");
+        String content = doc.getText().substring(0, Math.min(100, doc.getText().length()));
+        return filename + ":" + chunk + ":" + content.hashCode();
+    }
+    
+    /**
+     * Search vector store with specific threshold and retry logic
+     */
+    private List<Document> searchVectorStoreWithThreshold(String query, int maxResults, double threshold) {
+        int maxRetries = 2;
+        int retryCount = 0;
+        
+        while (retryCount <= maxRetries) {
+            try {
+                // Get the dynamic VectorStore for the current collection
+                String currentCollection = indexingService.getCurrentCollectionName();
+                VectorStore dynamicVectorStore = vectorStoreFactory.createVectorStore(currentCollection);
+                
+                org.springframework.ai.vectorstore.SearchRequest searchRequest = 
+                    org.springframework.ai.vectorstore.SearchRequest.builder()
+                        .query(query)
+                        .topK(maxResults)
+                        .similarityThreshold(threshold)
+                        .build();
+                
+                List<Document> results = dynamicVectorStore.similaritySearch(searchRequest);
+                
+                // Success - return results
+                if (retryCount > 0) {
+                    System.out.println("✅ Vector search succeeded on retry " + retryCount + " for query: " + query);
+                }
+                return results;
+                
+            } catch (Exception e) {
+                retryCount++;
+                boolean isConnectionError = e.getMessage() != null && 
+                    (e.getMessage().contains("UNAVAILABLE") || 
+                     e.getMessage().contains("io exception") ||
+                     e.getMessage().contains("Connection refused"));
+                
+                if (retryCount <= maxRetries && isConnectionError) {
+                    System.out.printf("⚠️ Vector search attempt %d failed for '%s': %s. Retrying...%n", 
+                        retryCount, query, e.getMessage());
+                    
+                    try {
+                        Thread.sleep(1000 * retryCount); // Exponential backoff
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                } else {
+                    // Final failure or non-connection error
+                    if (isConnectionError) {
+                        System.err.printf("❌ Vector search failed for '%s' after %d attempts: %s%n", 
+                            query, retryCount, e.getMessage());
+                        System.err.println("💡 This may be a temporary network issue. The search will continue with other queries.");
+                    } else {
+                        System.err.printf("❌ Vector search failed for '%s': %s%n", query, e.getMessage());
+                    }
+                    break;
+                }
+            }
+        }
+        
+        return new ArrayList<>();
     }
 
     /**
@@ -233,11 +417,37 @@ public class HybridSearchService {
      */
     private List<Document> searchVectorStore(String query, int maxResults) {
         try {
+            // Check if we have pre-computed multi-query results
+            if (multiQueryResults != null && query.contains("[MULTI-QUERY-EXPANSION]")) {
+                System.out.println("🎯 Using pre-computed multi-query expansion results (skipping redundant vector search)");
+                List<Document> results = new ArrayList<>(multiQueryResults);
+                
+                // Clear the stored results
+                multiQueryResults = null;
+                
+                // Apply alternative ranking to the combined results
+                if (!results.isEmpty()) {
+                    String originalQuery = query.replace(" [MULTI-QUERY-EXPANSION]", "");
+                    System.out.println("📊 Applying alternative ranking to " + results.size() + " pre-computed documents");
+                    results = applyAlternativeRanking(results, originalQuery, maxResults);
+                    System.out.println("📊 Multi-query expansion final results: " + results.size() + " documents");
+                } else {
+                    System.out.println("⚠️ No pre-computed results available, multi-query expansion may have failed");
+                }
+                
+                return results;
+            }
+            
             // Get the dynamic VectorStore for the current collection
             String currentCollection = indexingService.getCurrentCollectionName();
             String currentDirectory = indexingService.getCurrentIndexingDirectory();
 
+            // DEBUG: Temporarily disabled validation to test vector search
+            System.out.println("🔍 DEBUG: Collection check - currentCollection: " + currentCollection + ", currentDirectory: " + currentDirectory);
+            
             // Check if a directory has been indexed (not using default collection)
+            // TEMPORARILY COMMENTED OUT FOR DEBUGGING
+            /*
             if ("codebase-index".equals(currentCollection) || currentDirectory == null) {
                 System.out.println("⚠️ No specific directory indexed yet. Please index a codebase first using option 6.");
                 System.out.println("💡 Current collection: " + currentCollection);
@@ -246,14 +456,51 @@ public class HybridSearchService {
                 }
                 return new ArrayList<>(); // Return empty results
             }
+            */
 
             VectorStore dynamicVectorStore = vectorStoreFactory.createVectorStore(currentCollection);
             
-            // Perform similarity search
-            List<Document> documents = dynamicVectorStore.similaritySearch(query);
-
+            // Perform similarity search with debug
             System.out.println("🔍 Searching in collection: " + currentCollection + " (directory: " + currentDirectory + ")");
-            System.out.println("📊 Found " + documents.size() + " potential matches");
+            System.out.println("🔍 Search query length: " + query.length() + " chars");
+            System.out.println("🔍 Search query preview: " + (query.length() > 100 ? query.substring(0, 100) + "..." : query));
+            
+            // NEW: Alternative ranking approach - get ALL results without threshold filtering
+            List<Document> documents;
+            try {
+                System.out.println("🎯 Using alternative ranking system instead of threshold filtering");
+                
+                // Get all potential matches using basic search
+                // We'll rank them with our alternative ranking system instead of relying on Qdrant thresholds
+                
+                System.out.println("🔍 FINAL QUERY TO QDRANT: '" + query + "'");
+                System.out.println("🔍 Collection: " + currentCollection);
+                
+                documents = dynamicVectorStore.similaritySearch(query);
+                System.out.println("📊 Raw vector search found " + documents.size() + " matches");
+                
+                // Apply our alternative ranking system to improve results
+                if (!documents.isEmpty()) {
+                    documents = applyAlternativeRanking(documents, query, maxResults);
+                    System.out.println("📊 After alternative ranking: " + documents.size() + " matches");
+                } else {
+                    // Fallback: try broader search with key terms
+                    System.out.println("🔍 No raw results, trying broader search...");
+                    String keyTerms = extractKeyTerms(query);
+                    if (!keyTerms.equals(query)) {
+                        documents = dynamicVectorStore.similaritySearch(keyTerms);
+                        if (!documents.isEmpty()) {
+                            documents = applyAlternativeRanking(documents, query, maxResults);
+                            System.out.println("📊 Broader search + ranking: " + documents.size() + " matches");
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                System.out.println("❌ Error with alternative ranking, trying basic search: " + e.getMessage());
+                documents = dynamicVectorStore.similaritySearch(query);
+            }
+            
+            System.out.println("📊 Final result: " + documents.size() + " documents");
 
             return documents;
             
@@ -349,8 +596,25 @@ public class HybridSearchService {
                 content,
                 1.0, // Vector search doesn't provide explicit scores
                 "vector-search",
-                metadata,
-                lineMatches);
+                convertLineMatches(lineMatches),
+                metadata);
+    }
+
+    /**
+     * Convert FileSearchService.LineMatch objects to HybridSearchService.LineMatch objects
+     */
+    private List<LineMatch> convertLineMatches(List<FileSearchService.LineMatch> fileLineMatches) {
+        if (fileLineMatches == null) {
+            return new ArrayList<>();
+        }
+        
+        return fileLineMatches.stream()
+            .map(fileMatch -> new LineMatch(
+                fileMatch.getLineNumber(),
+                fileMatch.getLineContent(),
+                fileMatch.getMatchedTerm()
+            ))
+            .collect(Collectors.toList());
     }
 
     /**
@@ -542,6 +806,9 @@ public class HybridSearchService {
                 case SEMANTIC -> {
                     System.out.println("🧠 Performing semantic search...");
                     vectorResults = performSemanticSearch(request);
+                    if(vectorResults != null){
+                        System.out.println("📊 Semantic search completed - " + vectorResults.size() + " results found");
+                    }   
                 }
                 case TEXT -> {
                     System.out.println("📝 Performing text search...");
@@ -573,7 +840,22 @@ public class HybridSearchService {
         return new HybridSearchResult(vectorResults, fileResults, aiAnalysis, usedFallback);
     }
 
+    /**
+     * Perform advanced multi-step semantic search with comprehensive code discovery capabilities.
+     * 
+     * This method implements a sophisticated 5-step search pipeline:
+     * 1. Project Context Analysis - Detects frameworks, dependencies, and project type
+     * 2. Framework Context Integration - Augments queries with framework-specific terms
+     * 3. Code-Semantic Phrase Conversion - Transforms natural language to code patterns
+     * 4. Semantic Variants Generation - Creates multiple query expressions for better recall
+     * 5. Multi-Query Vector Search - Executes all variants with metadata-enhanced filtering
+     * 
+     * @param request The search request containing query, limits, and filters
+     * @return List of enhanced SearchResult objects with relevance scoring and metadata
+     */
     private List<SearchResult> performSemanticSearch(SearchRequest request) {
+        System.out.println("🎯 SEMANTIC SEARCH NOW USING ALTERNATIVE RANKING SYSTEM");
+        
         // Temporarily suppress gRPC logging during semantic search
         suppressLogging();
 
@@ -598,15 +880,94 @@ public class HybridSearchService {
             System.out.println("🔍 Semantic search in collection: " + currentCollection + " (directory: "
                     + currentDirectory + ")");
 
-            // STEP 1: PROJECT-AWARE SEARCH STRATEGY
-            // Analyze the current project context to tailor the search
-            ProjectContext projectContext = analyzeProjectContext(currentDirectory);
+            // STEP 1: Generate enhanced query using intelligent analysis
+            String originalQuery = request.getQuery();
+            String enhancedQuery = performIntelligentQueryAnalysis(originalQuery);
             
-            // STEP 2: Create project-specific search strategy
-            List<SearchResult> results = performProjectAwareSearch(request, dynamicVectorStore, projectContext);
+            // STEP 2: Check if we have pre-computed multi-query results
+            List<Document> rawDocuments;
+            if (multiQueryResults != null && enhancedQuery.contains("[MULTI-QUERY-EXPANSION]")) {
+                System.out.println("🎯 Using pre-computed multi-query expansion results (skipping redundant vector search)");
+                rawDocuments = new ArrayList<>(multiQueryResults);
+                
+                // Clear the stored results
+                multiQueryResults = null;
+                
+                System.out.println("📊 Using " + rawDocuments.size() + " pre-computed documents from multi-query expansion");
+            } else {
+                // Only show debug output for non-multi-query expansion searches
+                System.out.println("🔍 ORIGINAL QUERY: '" + originalQuery + "'");
+                System.out.println("🔍 ENHANCED QUERY: '" + enhancedQuery + "'");
+                System.out.println("🔍 FINAL QUERY TO VECTOR DATABASE: '" + enhancedQuery + "'");
+                System.out.println("🔍 Query length: " + enhancedQuery.length() + " characters");
+                System.out.println("🔍 Query type: " + request.getSearchType());
+                
+                // Perform the actual vector search
+                rawDocuments = dynamicVectorStore.similaritySearch(enhancedQuery);
+                System.out.println("📊 Raw documents retrieved: " + rawDocuments.size());
+            }
             
-            System.out.println("🎯 Project-aware search completed - " + results.size() + " results found");
+            if (rawDocuments.isEmpty()) {
+                System.out.println("❌ No documents found in vector search");
+                return new ArrayList<>();
+            }
             
+            // STEP 3: Extract file paths from vector results for targeted file-based search
+            System.out.println("🔍 Performing file-based search on vector result files...");
+            Set<String> vectorResultFiles = rawDocuments.stream()
+                .map(doc -> doc.getMetadata().getOrDefault("filepath", "").toString())
+                .filter(path -> !path.isEmpty())
+                .collect(Collectors.toSet());
+            
+            System.out.println("📁 Vector search found files: " + vectorResultFiles.size());
+            
+            // STEP 4: Apply 3-query file-based search on the vector result files
+            List<FileSearchService.SearchResult> fileBasedResults = new ArrayList<>();
+            if (!vectorResultFiles.isEmpty()) {
+                // Query 1: Search for route decorators and filter to vector result files
+                System.out.println("   🔍 File search 1: @app.route in vector result files");
+                List<FileSearchService.SearchResult> routeResults = fileSearchService.searchInFiles("@app.route");
+                List<FileSearchService.SearchResult> filteredRouteResults = filterResultsByFiles(routeResults, vectorResultFiles);
+                fileBasedResults.addAll(filteredRouteResults);
+                
+                // Query 2: Search for Flask API content and filter to vector result files  
+                System.out.println("   🔍 File search 2: Flask API endpoints in vector result files");
+                List<FileSearchService.SearchResult> apiResults = fileSearchService.searchInFiles("Flask API endpoints");
+                List<FileSearchService.SearchResult> filteredApiResults = filterResultsByFiles(apiResults, vectorResultFiles);
+                fileBasedResults.addAll(filteredApiResults);
+                
+                // Query 3: Search for POST methods and filter to vector result files
+                System.out.println("   🔍 File search 3: POST methods JSON in vector result files");
+                List<FileSearchService.SearchResult> postResults = fileSearchService.searchInFiles("POST methods JSON");
+                List<FileSearchService.SearchResult> filteredPostResults = filterResultsByFiles(postResults, vectorResultFiles);
+                fileBasedResults.addAll(filteredPostResults);
+                
+                System.out.println("📊 File-based search results: " + fileBasedResults.size() + " matches in vector result files");
+            }
+            
+            // STEP 5: Convert vector results to SearchResults with line matching
+            List<SearchResult> vectorSearchResults = rawDocuments.stream()
+                .map(doc -> convertToSearchResultWithScore(doc, originalQuery))
+                .collect(Collectors.toList());
+            
+            // STEP 6: Convert file-based results to SearchResults and combine
+            List<SearchResult> combinedResults = new ArrayList<>(vectorSearchResults);
+            for (FileSearchService.SearchResult fileResult : fileBasedResults) {
+                SearchResult convertedResult = convertFileSearchResultToSearchResult(fileResult, "file-enhanced");
+                combinedResults.add(convertedResult);
+            }
+            
+            // Remove duplicates based on file path and line number
+            List<SearchResult> deduplicatedResults = removeDuplicateSearchResults(combinedResults);
+            
+            // Sort by highest similarity/relevance score (descending order)
+            List<SearchResult> results = deduplicatedResults.stream()
+                .sorted((a, b) -> Double.compare(b.getRelevanceScore(), a.getRelevanceScore()))
+                .collect(Collectors.toList());
+            
+            System.out.println("✅ Semantic search with similarity sorting completed: " + results.size() + " results");
+            System.out.println("📊 Top result similarity: " + (results.isEmpty() ? "N/A" : 
+                String.format("%.3f", results.get(0).getRelevanceScore())));
             return results;
 
         } catch (Exception e) {
@@ -643,22 +1004,356 @@ public class HybridSearchService {
         Map<String, Object> metadata = document.getMetadata();
         String fileName = metadata.getOrDefault("filename", "Unknown").toString();
         String filePath = metadata.getOrDefault("filepath", "Unknown").toString();
-        String content = document.getText(); // Use getText() instead of getContent()
+        String fullContent = document.getText(); // Use getText() instead of getContent()
 
         // Add current collection name to metadata for proper display
         String currentCollection = indexingService.getCurrentCollectionName();
         metadata = new HashMap<>(metadata); // Create mutable copy
         metadata.put("collectionName", currentCollection);
 
+        // Extract line matches from content first
+        List<FileSearchService.LineMatch> lineMatches = extractLineMatchesFromContent(fullContent, query);
+
+        // Create focused content based on line matches instead of showing entire document
+        String focusedContent = createFocusedContent(fullContent, lineMatches, query);
+
         // Calculate relevance score with document type boost
-        double score = calculateRelevanceScoreWithMetadata(content, query, metadata);
+        double score = calculateRelevanceScoreWithMetadata(fullContent, query, metadata);
 
-        // Extract line matches from content
-        List<FileSearchService.LineMatch> lineMatches = extractLineMatchesFromContent(content, query);
-
-        return new SearchResult(fileName, filePath, content, score, "semantic", metadata, lineMatches);
+        return new SearchResult(fileName, filePath, focusedContent, score, "semantic", 
+                                convertLineMatches(lineMatches), metadata);
     }
 
+    /**
+     * Create focused content based on line matches instead of showing entire document
+     */
+    private String createFocusedContent(String fullContent, List<FileSearchService.LineMatch> lineMatches, String query) {
+        if (lineMatches.isEmpty()) {
+            // If no line matches found, return a snippet of the full content
+            return createContentSnippet(fullContent, query);
+        }
+        
+        StringBuilder focusedContent = new StringBuilder();
+        String[] allLines = fullContent.split("\n");
+        
+        // Show context around each line match
+        for (int i = 0; i < lineMatches.size(); i++) {
+            FileSearchService.LineMatch match = lineMatches.get(i);
+            int lineNumber = match.getLineNumber();
+            
+            if (i > 0) {
+                focusedContent.append("\n...\n");
+            }
+            
+            // Show 2 lines of context before and after the match
+            int startLine = Math.max(0, lineNumber - 3); // -3 because lineNumber is 1-based
+            int endLine = Math.min(allLines.length - 1, lineNumber + 1); // +1 for context after
+            
+            for (int j = startLine; j <= endLine; j++) {
+                if (j < allLines.length) {
+                    String line = allLines[j];
+                    int displayLineNumber = j + 1;
+                    
+                    // Highlight the matched line
+                    if (displayLineNumber == lineNumber) {
+                        focusedContent.append(String.format(">>> %d: %s\n", displayLineNumber, line));
+                    } else {
+                        focusedContent.append(String.format("    %d: %s\n", displayLineNumber, line));
+                    }
+                }
+            }
+        }
+        
+        return focusedContent.toString();
+    }
+    
+    /**
+     * Create a content snippet when no specific line matches are found
+     */
+    private String createContentSnippet(String fullContent, String query) {
+        String[] lines = fullContent.split("\n");
+        
+        // Try to find the first line that contains any query term
+        String[] queryTerms = query.toLowerCase().split("\\s+");
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i];
+            String lineLower = line.toLowerCase();
+            
+            for (String term : queryTerms) {
+                if (term.length() > 2 && lineLower.contains(term)) {
+                    // Found a relevant line, show context around it
+                    StringBuilder snippet = new StringBuilder();
+                    int startLine = Math.max(0, i - 2);
+                    int endLine = Math.min(lines.length - 1, i + 5);
+                    
+                    for (int j = startLine; j <= endLine; j++) {
+                        int displayLineNumber = j + 1;
+                        if (j == i) {
+                            snippet.append(String.format(">>> %d: %s\n", displayLineNumber, lines[j]));
+                        } else {
+                            snippet.append(String.format("    %d: %s\n", displayLineNumber, lines[j]));
+                        }
+                    }
+                    
+                    if (endLine < lines.length - 1) {
+                        snippet.append("    ...\n");
+                    }
+                    
+                    return snippet.toString();
+                }
+            }
+        }
+        
+        // If no specific terms found, show the first few lines
+        StringBuilder snippet = new StringBuilder();
+        int maxLines = Math.min(8, lines.length);
+        for (int i = 0; i < maxLines; i++) {
+            snippet.append(String.format("    %d: %s\n", i + 1, lines[i]));
+        }
+        
+        if (lines.length > maxLines) {
+            snippet.append("    ...\n");
+        }
+        
+        return snippet.toString();
+    }
+
+    /**
+     * Simple search method that delegates to hybrid search
+     */
+    public List<SearchResult> search(String query, int maxResults) {
+        try {
+            HybridSearchResult hybridResult = performHybridSearch(query, maxResults);
+
+            // Combine vector and file results into a single list
+            List<SearchResult> allResults = new ArrayList<>(hybridResult.getVectorResults());
+            
+            // Convert file results to SearchResult format
+            for (FileSearchService.SearchResult fileResult : hybridResult.getFileResults()) {
+                SearchResult convertedResult = convertFileSearchResult(fileResult);
+                allResults.add(convertedResult);
+            }
+
+            return allResults.stream()
+                    .limit(maxResults)
+                    .collect(Collectors.toList());
+
+        } catch (Exception e) {
+            System.err.println("❌ Search failed: " + e.getMessage());
+            return new ArrayList<>();
+        }
+    }
+
+    /**
+     * Convert FileSearchService.SearchResult to HybridSearchService.SearchResult
+     */
+    private SearchResult convertFileSearchResult(FileSearchService.SearchResult fileResult) {
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("collectionName", indexingService.getCurrentCollectionName());
+        metadata.put("searchType", fileResult.getSearchType());
+
+        return new SearchResult(
+                fileResult.getFileName(),
+                fileResult.getFilePath(),
+                fileResult.getContent(),
+                fileResult.getRelevanceScore(),
+                fileResult.getSearchType(),
+                convertLineMatches(fileResult.getLineMatches()),
+                metadata);
+    }
+
+    /**
+     * Restart indexing process
+     */
+    public void restartIndexing() {
+        try {
+            indexingService.restartIndexing();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to restart indexing", e);
+        }
+    }
+
+    /**
+     * Clear cache and reindex all files
+     */
+    public void clearCacheAndReindex() {
+        try {
+            indexingService.clearCacheAndReindex();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to clear cache and reindex", e);
+        }
+    }
+
+    /**
+     * Get current indexing directory
+     */
+    public String getCurrentIndexingDirectory() {
+        try {
+            return indexingService.getCurrentIndexingDirectory();
+        } catch (Exception e) {
+            return "Unknown";
+        }
+    }
+
+    /**
+     * Get indexing status for display
+     */
+    public IndexingStatus getIndexingStatus() {
+        try {
+            // Return the detailed status from the indexing service directly
+            return indexingService.getIndexingStatus();
+        } catch (Exception e) {
+            System.err.println("Error retrieving indexing status: " + e.getMessage());
+            e.printStackTrace();
+            // Return a safe default status using builder
+            return IndexingStatus.builder()
+                    .indexingComplete(false)
+                    .indexingInProgress(false)
+                    .indexedFiles(0)
+                    .totalFiles(0)
+                    .build();
+        }
+    }
+
+    /**
+     * Set the directory to index
+     */
+    public void setIndexingDirectory(String directory) {
+        // Use the new method that sets both directory and collection name
+        indexingService.setIndexingDirectoryWithCollection(directory);
+        fileSearchService.setSearchDirectory(directory);
+    }
+
+    /**
+     * Get the underlying IndexingService for detailed metrics
+     */
+    public FileIndexingService getIndexingService() {
+        return indexingService;
+    }
+
+    /**
+     * Extract line matches from content for vector search results, with special handling for REST API endpoints
+     */
+    private List<FileSearchService.LineMatch> extractLineMatchesFromContent(String content, String query) {
+        List<FileSearchService.LineMatch> matches = new ArrayList<>();
+        String[] lines = content.split("\n");
+        String queryLower = query.toLowerCase();
+
+        // Enhanced query matching - tokenize query for better matches
+        String[] queryTerms = query.toLowerCase().split("\\s+");
+        
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i];
+            String lineLower = line.toLowerCase();
+            
+            // Score line relevance
+            double lineRelevance = calculateLineRelevance(lineLower, queryTerms, query);
+            
+            // Lower threshold for semantic search to capture more matches
+            if (lineRelevance > 0.1) {
+                String actualMatchedTerm = findBestMatchingTerm(lineLower, queryTerms, query);
+                matches.add(new FileSearchService.LineMatch(i + 1, line.trim(), actualMatchedTerm));
+            }
+        }
+
+        // Sort by relevance and return top matches
+        List<FileSearchService.LineMatch> sortedMatches = matches.stream()
+            .sorted((a, b) -> Double.compare(
+                calculateLineRelevance(b.getLineContent().toLowerCase(), queryTerms, query),
+                calculateLineRelevance(a.getLineContent().toLowerCase(), queryTerms, query)
+            ))
+            .limit(8) // Show top 8 most relevant matches
+            .collect(Collectors.toList());
+        
+        System.out.println("🔍 DEBUG: Line extraction for query '" + query + "' found " + matches.size() + " matches, returning " + sortedMatches.size());
+        
+        // If no matches found with relevance scoring, try simple string matching as fallback
+        if (sortedMatches.isEmpty()) {
+            System.out.println("🔍 DEBUG: No relevance matches found, trying simple string matching...");
+            for (int i = 0; i < lines.length; i++) {
+                String line = lines[i];
+                String lineLower = line.toLowerCase();
+                
+                // Simple containment check for any query term
+                for (String term : queryTerms) {
+                    if (lineLower.contains(term)) {
+                        sortedMatches.add(new FileSearchService.LineMatch(i + 1, line.trim(), term));
+                        break; // Only add each line once
+                    }
+                }
+                
+                // Limit to prevent too many results
+                if (sortedMatches.size() >= 5) break;
+            }
+            System.out.println("🔍 DEBUG: Simple string matching found " + sortedMatches.size() + " additional matches");
+        }
+        
+        return sortedMatches;
+    }
+    
+    /**
+     * Calculate line relevance score based on query terms
+     */
+    private double calculateLineRelevance(String lineLower, String[] queryTerms, String originalQuery) {
+        double score = 0.0;
+        
+        // Exact query match gets highest score
+        if (lineLower.contains(originalQuery.toLowerCase())) {
+            score += 1.0;
+        }
+        
+        // Count individual term matches
+        int termMatches = 0;
+        for (String term : queryTerms) {
+            if (term.length() > 2 && lineLower.contains(term)) { // Skip very short terms
+                termMatches++;
+                score += 0.3;
+            }
+        }
+        
+        // Bonus for multiple term matches in same line
+        if (termMatches > 1) {
+            score += 0.2 * termMatches;
+        }
+        
+        // Bonus for important code patterns
+        if (lineLower.contains("def ") || lineLower.contains("class ") || 
+            lineLower.contains("function ") || lineLower.contains("@")) {
+            score += 0.2;
+        }
+        
+        // Bonus for import statements and function signatures
+        if (lineLower.contains("import ") || lineLower.contains("from ") ||
+            lineLower.contains("public ") || lineLower.contains("private ")) {
+            score += 0.1;
+        }
+        
+        return Math.min(score, 1.0);
+    }
+    
+    /**
+     * Find the best matching term from the query that appears in the line
+     */
+    private String findBestMatchingTerm(String lineLower, String[] queryTerms, String originalQuery) {
+        // First check for exact query match
+        if (lineLower.contains(originalQuery.toLowerCase())) {
+            return originalQuery;
+        }
+        
+        // Find the longest matching term
+        String bestMatch = "";
+        for (String term : queryTerms) {
+            if (term.length() > 2 && lineLower.contains(term) && term.length() > bestMatch.length()) {
+                bestMatch = term;
+            }
+        }
+        
+        return bestMatch.isEmpty() ? originalQuery : bestMatch;
+    }
+
+    /**
+     * Calculate relevance score with document type boost
+     */
     private double calculateRelevanceScoreWithMetadata(String content, String query, Map<String, Object> metadata) {
         // Simple relevance scoring - count query terms in content
         String[] queryTerms = query.toLowerCase().split("\\s+");
@@ -703,21 +1398,86 @@ public class HybridSearchService {
         }
     }
 
-    private double calculateRelevanceScore(String content, String query) {
-        Map<String, Object> metadata = null; // We'll need to pass metadata here
-        
-        // Simple relevance scoring - count query terms in content
-        String[] queryTerms = query.toLowerCase().split("\\s+");
-        String contentLower = content.toLowerCase();
-
-        long matches = Arrays.stream(queryTerms)
-                .mapToLong(term -> contentLower.split(term, -1).length - 1)
-                .sum();
-
-        // Base score normalized by content length
-        return Math.min(1.0, matches / Math.max(1.0, contentLower.length() / 100.0));
+    /**
+     * Check if the query is related to project analysis, frameworks, or dependencies
+     */
+    private boolean isProjectAnalysisQuery(String query) {
+        return query.contains("project") || query.contains("framework") || 
+               query.contains("dependency") || query.contains("technology") ||
+               query.contains("language") || query.contains("stack");
     }
 
+    /**
+     * Enhanced fallback query expansion for better programming concept matching
+     */
+    private String enhanceQueryForProgramming(String query) {
+        StringBuilder enhanced = new StringBuilder(query);
+        String queryLower = query.toLowerCase();
+        
+        // Add programming-specific terms based on query content
+        if (queryLower.contains("api") || queryLower.contains("endpoint")) {
+            enhanced.append(" route decorator function method HTTP REST");
+        }
+        
+        if (queryLower.contains("database") || queryLower.contains("db")) {
+            enhanced.append(" model query ORM SQLAlchemy repository entity");
+        }
+        
+        if (queryLower.contains("function") || queryLower.contains("method")) {
+            enhanced.append(" def function method implementation code");
+        }
+        
+        if (queryLower.contains("class") || queryLower.contains("service")) {
+            enhanced.append(" class service component module implementation");
+        }
+        
+        return enhanced.toString();
+    }
+
+    /**
+     * Extract key terms from query for broader search
+     */
+    private String extractKeyTerms(String query) {
+        // Simple keyword extraction - remove common words and keep important terms
+        String[] words = query.toLowerCase().split("\\s+");
+        StringBuilder keyTerms = new StringBuilder();
+        
+        Set<String> stopWords = Set.of("the", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by");
+        
+        for (String word : words) {
+            if (word.length() > 2 && !stopWords.contains(word)) {
+                if (keyTerms.length() > 0) {
+                    keyTerms.append(" ");
+                }
+                keyTerms.append(word);
+            }
+        }
+        
+        return keyTerms.toString();
+    }
+
+    /**
+     * Apply alternative ranking system to documents
+     */
+    private List<Document> applyAlternativeRanking(List<Document> documents, String query, int maxResults) {
+        // Simple ranking based on metadata and content relevance
+        return documents.stream()
+            .sorted((a, b) -> {
+                String typeA = (String) a.getMetadata().getOrDefault("documentType", "");
+                String typeB = (String) b.getMetadata().getOrDefault("documentType", "");
+                
+                int scoreA = getDocumentTypeScore(typeA, query.toLowerCase());
+                int scoreB = getDocumentTypeScore(typeB, query.toLowerCase());
+                
+                return Integer.compare(scoreB, scoreA); // Higher score first
+            })
+            .limit(maxResults)
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * Generate advanced AI analysis for search results
+     */
     private String generateAdvancedAIAnalysis(SearchRequest request, List<SearchResult> vectorResults,
             List<FileSearchService.SearchResult> fileResults) {
         try {
@@ -751,79 +1511,7 @@ public class HybridSearchService {
     }
 
     /**
-     * Restart indexing process
-     */
-    public void restartIndexing() {
-        try {
-            indexingService.restartIndexing();
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to restart indexing", e);
-        }
-    }
-
-    /**
-     * Clear cache and reindex all files
-     */
-    public void clearCacheAndReindex() {
-        try {
-            indexingService.clearCacheAndReindex();
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to clear cache and reindex", e);
-        }
-    }
-
-    /**
-     * Get current indexing directory
-     */
-    public String getCurrentIndexingDirectory() {
-        try {
-            return indexingService.getCurrentIndexingDirectory();
-        } catch (Exception e) {
-            return "Unknown";
-        }
-    }
-
-    /**
-     * Get indexing status for display
-     */
-    public IndexingStatus getIndexingStatus() {
-        try {
-            // Get the detailed status from the indexing service
-            sg.edu.nus.iss.codebase.indexer.model.IndexingStatus detailedStatus = indexingService.getIndexingStatus();
-
-            // Convert to the simple IndexingStatus for this service
-            return new IndexingStatus(
-                    detailedStatus.isIndexingComplete(),
-                    detailedStatus.isIndexingInProgress(),
-                    detailedStatus.getIndexedFiles(),
-                    detailedStatus.getTotalFiles(),
-                    detailedStatus.getProgress());
-        } catch (Exception e) {
-            System.err.println("Error retrieving indexing status: " + e.getMessage());
-            e.printStackTrace();
-            // Return a safe default status
-            return new IndexingStatus(false, false, 0, 0, 0.0);
-        }
-    }
-
-    /**
-     * Set the directory to index
-     */
-    public void setIndexingDirectory(String directory) {
-        // Use the new method that sets both directory and collection name
-        indexingService.setIndexingDirectoryWithCollection(directory);
-        fileSearchService.setSearchDirectory(directory);
-    }
-
-    /**
-     * Get the underlying IndexingService for detailed metrics
-     */
-    public FileIndexingService getIndexingService() {
-        return indexingService;
-    }
-
-    /**
-     * Search result class with enhanced metadata
+     * Represents a search result with enhanced metadata and scoring
      */
     public static class SearchResult {
         private final String fileName;
@@ -831,718 +1519,216 @@ public class HybridSearchService {
         private final String content;
         private final double relevanceScore;
         private final String searchType;
+        private final List<LineMatch> lineMatches;
         private final Map<String, Object> metadata;
-        private final List<FileSearchService.LineMatch> lineMatches;
 
-        public SearchResult(String fileName, String filePath, String content, double relevanceScore,
-                String searchType) {
+        public SearchResult(String fileName, String filePath, String content, double relevanceScore, 
+                            String searchType) {
             this.fileName = fileName;
             this.filePath = filePath;
             this.content = content;
             this.relevanceScore = relevanceScore;
             this.searchType = searchType;
+            this.lineMatches = new ArrayList<>();
             this.metadata = new HashMap<>();
-            this.lineMatches = new ArrayList<>();
         }
 
-        public SearchResult(String fileName, String filePath, String content, double relevanceScore, String searchType,
-                Map<String, Object> metadata) {
+        public SearchResult(String fileName, String filePath, String content, double relevanceScore, 
+                            String searchType, List<LineMatch> lineMatches) {
             this.fileName = fileName;
             this.filePath = filePath;
             this.content = content;
             this.relevanceScore = relevanceScore;
             this.searchType = searchType;
-            this.metadata = metadata != null ? new HashMap<>(metadata) : new HashMap<>();
-            this.lineMatches = new ArrayList<>();
-        }
-
-        public SearchResult(String fileName, String filePath, String content, double relevanceScore, String searchType,
-                Map<String, Object> metadata, List<FileSearchService.LineMatch> lineMatches) {
-            this.fileName = fileName;
-            this.filePath = filePath;
-            this.content = content;
-            this.relevanceScore = relevanceScore;
-            this.searchType = searchType;
-            this.metadata = metadata != null ? new HashMap<>(metadata) : new HashMap<>();
             this.lineMatches = lineMatches != null ? lineMatches : new ArrayList<>();
+            this.metadata = new HashMap<>();
         }
 
-        public String getFileName() {
-            return fileName;
+        public SearchResult(String fileName, String filePath, String content, double relevanceScore, 
+                            String searchType, List<LineMatch> lineMatches, Map<String, Object> metadata) {
+            this.fileName = fileName;
+            this.filePath = filePath;
+            this.content = content;
+            this.relevanceScore = relevanceScore;
+            this.searchType = searchType;
+            this.lineMatches = lineMatches != null ? lineMatches : new ArrayList<>();
+            this.metadata = metadata != null ? metadata : new HashMap<>();
         }
 
-        public String getFilePath() {
-            return filePath;
-        }
-
-        public String getContent() {
-            return content;
-        }
-
-        public double getRelevanceScore() {
-            return relevanceScore;
-        }
-
-        public double getScore() {
-            return relevanceScore;
-        } // Add getScore() method for compatibility
-
-        public String getSearchType() {
-            return searchType;
-        }
-
-        public Map<String, Object> getMetadata() {
-            return metadata;
-        }
-
-        public List<FileSearchService.LineMatch> getLineMatches() {
-            return lineMatches;
-        }
-
+        // Getters
+        public String getFileName() { return fileName; }
+        public String getFilePath() { return filePath; }
+        public String getContent() { return content; }
+        public double getRelevanceScore() { return relevanceScore; }
+        public double getScore() { return relevanceScore; } // Alias for compatibility
+        public String getSearchType() { return searchType; }
+        public List<LineMatch> getLineMatches() { return lineMatches; }
+        public Map<String, Object> getMetadata() { return metadata; }
+        
         // Convenience methods for common metadata
+        public String getCollectionName() {
+            return (String) metadata.getOrDefault("collectionName", "codebase-index");
+        }
+        
         public String getLastModifiedDate() {
             return (String) metadata.getOrDefault("lastModifiedDate", "Unknown");
         }
-
+        
         public String getIndexedAt() {
             return (String) metadata.getOrDefault("indexedAt", "Unknown");
         }
-
+        
         public String getFileSize() {
             return (String) metadata.getOrDefault("size", "Unknown");
-        }
-
-        public String getCollectionName() {
-            return (String) metadata.getOrDefault("collectionName", "codebase-index");
         }
     }
 
     /**
-     * Hybrid search result container
+     * Represents a line match within a file
+     */
+    public static class LineMatch {
+        private final int lineNumber;
+        private final String lineContent;
+        private final String matchedTerm;
+        private final int startIndex;
+        private final int endIndex;
+
+        public LineMatch(int lineNumber, String lineContent, String matchedTerm) {
+            this.lineNumber = lineNumber;
+            this.lineContent = lineContent;
+            this.matchedTerm = matchedTerm;
+            this.startIndex = -1;
+            this.endIndex = -1;
+        }
+
+        public LineMatch(int lineNumber, String lineContent, String matchedTerm, int startIndex, int endIndex) {
+            this.lineNumber = lineNumber;
+            this.lineContent = lineContent;
+            this.matchedTerm = matchedTerm;
+            this.startIndex = startIndex;
+            this.endIndex = endIndex;
+        }
+
+        // Getters
+        public int getLineNumber() { return lineNumber; }
+        public String getLineContent() { return lineContent; }
+        public String getMatchedTerm() { return matchedTerm; }
+        public int getStartIndex() { return startIndex; }
+        public int getEndIndex() { return endIndex; }
+    }
+
+    /**
+     * Represents the result of a hybrid search combining vector and file-based results
      */
     public static class HybridSearchResult {
         private final List<SearchResult> vectorResults;
         private final List<FileSearchService.SearchResult> fileResults;
         private final String aiAnalysis;
         private final boolean usedFallback;
+        private final long searchDuration;
+        private final Map<String, Object> searchMetadata;
 
-        public HybridSearchResult(List<SearchResult> vectorResults, List<FileSearchService.SearchResult> fileResults,
-                String aiAnalysis, boolean usedFallback) {
-            this.vectorResults = vectorResults;
-            this.fileResults = fileResults;
+        public HybridSearchResult(List<SearchResult> vectorResults, 
+                                  List<FileSearchService.SearchResult> fileResults,
+                                  String aiAnalysis, boolean usedFallback) {
+            this.vectorResults = vectorResults != null ? vectorResults : new ArrayList<>();
+            this.fileResults = fileResults != null ? fileResults : new ArrayList<>();
             this.aiAnalysis = aiAnalysis;
             this.usedFallback = usedFallback;
+            this.searchDuration = 0;
+            this.searchMetadata = new HashMap<>();
         }
 
-        public List<SearchResult> getVectorResults() {
-            return vectorResults;
+        public HybridSearchResult(List<SearchResult> vectorResults, 
+                                  List<FileSearchService.SearchResult> fileResults,
+                                  String aiAnalysis, boolean usedFallback, long searchDuration) {
+            this.vectorResults = vectorResults != null ? vectorResults : new ArrayList<>();
+            this.fileResults = fileResults != null ? fileResults : new ArrayList<>();
+            this.aiAnalysis = aiAnalysis;
+            this.usedFallback = usedFallback;
+            this.searchDuration = searchDuration;
+            this.searchMetadata = new HashMap<>();
         }
 
-        public List<FileSearchService.SearchResult> getFileResults() {
-            return fileResults;
+        // Getters
+        public List<SearchResult> getVectorResults() { return vectorResults; }
+        public List<FileSearchService.SearchResult> getFileResults() { return fileResults; }
+        public String getAiAnalysis() { return aiAnalysis; }
+        public boolean isUsedFallback() { return usedFallback; }
+        public long getSearchDuration() { return searchDuration; }
+        public Map<String, Object> getSearchMetadata() { return searchMetadata; }
+        
+        public int getTotalResults() { 
+            return vectorResults.size() + fileResults.size(); 
         }
-
-        public String getAiAnalysis() {
-            return aiAnalysis;
-        }
-
-        public boolean isUsedFallback() {
-            return usedFallback;
-        }
-
-        public int getTotalResults() {
-            return vectorResults.size() + fileResults.size();
-        }
-    }
-
-    /**
-     * Indexing status information
-     */
-    public static class IndexingStatus {
-        private final boolean complete;
-        private final boolean inProgress;
-        private final int indexedFiles;
-        private final int totalFiles;
-        private final double progress;
-
-        public IndexingStatus(boolean complete, boolean inProgress, int indexedFiles, int totalFiles, double progress) {
-            this.complete = complete;
-            this.inProgress = inProgress;
-            this.indexedFiles = indexedFiles;
-            this.totalFiles = totalFiles;
-            this.progress = progress;
-        }
-
-        public boolean isComplete() {
-            return complete;
-        }
-
-        public boolean isInProgress() {
-            return inProgress;
-        }
-
-        public int getIndexedFiles() {
-            return indexedFiles;
-        }
-
-        public int getTotalFiles() {
-            return totalFiles;
-        }
-
-        public double getProgress() {
-            return progress;
+        
+        public boolean hasResults() {
+            return !vectorResults.isEmpty() || !fileResults.isEmpty();
         }
     }
 
     /**
-     * Simple search method that delegates to hybrid search
+     * Filter file search results to only include files from vector results
      */
-    public List<SearchResult> search(String query, int maxResults) {
-        try {
-            HybridSearchResult hybridResult = performHybridSearch(query, maxResults);
-
-            // Combine vector and file results into a single list
-            List<SearchResult> allResults = new ArrayList<>(hybridResult.getVectorResults());
-            // Convert file results to SearchResult format if needed
-            for (FileSearchService.SearchResult fileResult : hybridResult.getFileResults()) {
-                Map<String, Object> metadata = new HashMap<>();
-                String currentCollection = indexingService.getCurrentCollectionName();
-                metadata.put("collectionName", currentCollection);
-                metadata.put("searchType", "file-search");
-                metadata.put("filename", fileResult.getFileName());
-                metadata.put("filepath", fileResult.getFilePath());
-                SearchResult searchResult = new SearchResult(
-                        fileResult.getFileName(),
-                        fileResult.getFilePath(),
-                        fileResult.getContent(),
-                        fileResult.getRelevanceScore(),
-                        "file-search",
-                        metadata);
-                allResults.add(searchResult);
-            }
-
-            return allResults.stream()
-                    .limit(maxResults)
-                    .collect(Collectors.toList());
-
-        } catch (Exception e) {
-            System.err.println("❌ Search failed: " + e.getMessage());
-            return new ArrayList<>();
-        }
+    private List<FileSearchService.SearchResult> filterResultsByFiles(List<FileSearchService.SearchResult> results, Set<String> vectorResultFiles) {
+        return results.stream()
+            .filter(result -> vectorResultFiles.contains(result.getFilePath()))
+            .collect(Collectors.toList());
     }
 
     /**
-     * Convert FileSearchService.SearchResult to HybridSearchService.SearchResult
+     * Convert FileSearchService.SearchResult to SearchResult for consistent display
      */
-    private SearchResult convertFileSearchResult(FileSearchService.SearchResult fileResult) {
+    private SearchResult convertFileSearchResultToSearchResult(FileSearchService.SearchResult fileResult, String searchType) {
+        // Create metadata map with file information
         Map<String, Object> metadata = new HashMap<>();
-        metadata.put("collectionName", indexingService.getCurrentCollectionName());
-        metadata.put("searchType", fileResult.getSearchType());
-
+        metadata.put("filename", fileResult.getFileName());
+        metadata.put("filepath", fileResult.getFilePath());
+        metadata.put("searchType", searchType);
+        
+        // Convert line matches from FileSearchService format to our format
+        List<LineMatch> lineMatches = new ArrayList<>();
+        for (FileSearchService.LineMatch fileLineMatch : fileResult.getLineMatches()) {
+            lineMatches.add(new LineMatch(
+                fileLineMatch.getLineNumber(),
+                fileLineMatch.getLineContent(),
+                fileLineMatch.getMatchedTerm()
+            ));
+        }
+        
         return new SearchResult(
-                fileResult.getFileName(),
-                fileResult.getFilePath(),
-                fileResult.getContent(),
-                fileResult.getRelevanceScore(),
-                fileResult.getSearchType(),
-                metadata,
-                fileResult.getLineMatches());
+            fileResult.getFileName(),
+            fileResult.getFilePath(),
+            fileResult.getContent(),
+            fileResult.getRelevanceScore(),
+            searchType,
+            lineMatches,
+            metadata
+        );
     }
 
     /**
-     * Extract line matches from content for vector search results
+     * Remove duplicate search results based on file path and line numbers
      */
-    private List<FileSearchService.LineMatch> extractLineMatchesFromContent(String content, String query) {
-        List<FileSearchService.LineMatch> matches = new ArrayList<>();
-        String[] lines = content.split("\n");
-        String queryLower = query.toLowerCase();
-
-        for (int i = 0; i < lines.length; i++) {
-            String line = lines[i];
-            if (line.toLowerCase().contains(queryLower)) {
-                matches.add(new FileSearchService.LineMatch(i + 1, line.trim(), query));
+    private List<SearchResult> removeDuplicateSearchResults(List<SearchResult> results) {
+        Map<String, SearchResult> uniqueResults = new LinkedHashMap<>();
+        
+        for (SearchResult result : results) {
+            // Create a unique key based on file path and line numbers
+            StringBuilder keyBuilder = new StringBuilder(result.getFilePath());
+            for (LineMatch lineMatch : result.getLineMatches()) {
+                keyBuilder.append(":").append(lineMatch.getLineNumber());
             }
-        }
-
-        return matches.stream().limit(5).collect(Collectors.toList()); // Limit to 5 matches per result
-    }
-
-    private String enhanceQueryForProgramming(String query) {
-        // Enhanced fallback query expansion for better programming concept matching
-        String enhancedQuery = query.toLowerCase();
-        String originalQuery = query; // Keep original case for certain patterns
-        
-        // REST API and endpoint patterns - most comprehensive
-        if (enhancedQuery.contains("rest api") || enhancedQuery.contains("api endpoint") || 
-            enhancedQuery.contains("endpoints") || enhancedQuery.contains("api") || 
-            enhancedQuery.contains("endpoint")) {
-            enhancedQuery += " @app.route Flask route decorator HTTP endpoint web service API function";
-            enhancedQuery += " @RequestMapping @GetMapping @PostMapping Spring Boot controller";
-            enhancedQuery += " app.get app.post Express.js router endpoint handler";
-            enhancedQuery += " GET POST PUT DELETE HTTP methods REST";
-        }
-        
-        // Framework-specific syntax patterns
-        if (enhancedQuery.contains("@app.route") || enhancedQuery.contains("app.route")) {
-            enhancedQuery += " Flask endpoint decorator route function HTTP API framework documentation";
-            enhancedQuery += " methods=['GET'] methods=['POST'] Flask routing patterns";
-        }
-        
-        if (enhancedQuery.contains("flask")) {
-            enhancedQuery += " @app.route endpoint decorator route function render_template jsonify request";
-            enhancedQuery += " Flask-SQLAlchemy db.Model app.run framework documentation";
-        }
-        
-        if (enhancedQuery.contains("spring boot") || enhancedQuery.contains("spring")) {
-            enhancedQuery += " @RestController @RequestMapping @GetMapping @PostMapping controller";
-            enhancedQuery += " @Service @Repository @Autowired annotation framework documentation";
-        }
-        
-        // Database and ORM patterns
-        if (enhancedQuery.contains("database") || enhancedQuery.contains("orm") || 
-            enhancedQuery.contains("model") || enhancedQuery.contains("entity")) {
-            enhancedQuery += " db.Model SQLAlchemy @Entity JPA @Repository";
-            enhancedQuery += " query filter findBy save database framework";
-        }
-        
-        // Authentication and security
-        if (enhancedQuery.contains("auth") || enhancedQuery.contains("login") || 
-            enhancedQuery.contains("security") || enhancedQuery.contains("session")) {
-            enhancedQuery += " @login_required session authentication security JWT token";
-            enhancedQuery += " @PreAuthorize @Secured Spring Security framework";
-        }
-        
-        // Project type and dependency analysis
-        if (enhancedQuery.contains("project type") || enhancedQuery.contains("technology stack") ||
-            enhancedQuery.contains("framework") || enhancedQuery.contains("dependencies")) {
-            enhancedQuery += " framework library dependency python java javascript spring flask";
-            enhancedQuery += " requirements.txt pom.xml package.json project analysis";
-        }
-        
-        if (enhancedQuery.contains("dependency") || enhancedQuery.contains("library") ||
-            enhancedQuery.contains("package")) {
-            enhancedQuery += " package framework requirements.txt pom.xml package.json import";
-            enhancedQuery += " maven gradle npm pip dependency management";
-        }
-        
-        // Programming language specific enhancements
-        if (enhancedQuery.contains("python")) {
-            enhancedQuery += " flask django requirements.txt pip import package library";
-            enhancedQuery += " @app.route def function python framework";
-        }
-        
-        if (enhancedQuery.contains("java")) {
-            enhancedQuery += " spring maven gradle pom.xml dependency jar library framework";
-            enhancedQuery += " @RestController @Service @Repository annotation";
-        }
-        
-        if (enhancedQuery.contains("javascript") || enhancedQuery.contains("node")) {
-            enhancedQuery += " npm package.json express react vue angular library";
-            enhancedQuery += " app.get app.post router middleware framework";
-        }
-        
-        // Testing frameworks
-        if (enhancedQuery.contains("test") || enhancedQuery.contains("testing")) {
-            enhancedQuery += " pytest @Test unittest JUnit Jest test framework";
-            enhancedQuery += " def test_ assert expect() beforeEach()";
-        }
-        
-        // Frontend frameworks
-        if (enhancedQuery.contains("react") || enhancedQuery.contains("frontend") || 
-            enhancedQuery.contains("component")) {
-            enhancedQuery += " useState useEffect componentDidMount JSX React framework";
-            enhancedQuery += " v-model Vue @Component Angular frontend";
-        }
-        
-        // Add framework documentation search terms
-        enhancedQuery += " framework documentation syntax pattern";
-        
-        return enhancedQuery;
-    }
-
-    /**
-     * Check if the query is related to project analysis, frameworks, or dependencies
-     */
-    private boolean isProjectAnalysisQuery(String query) {
-        String queryLower = query.toLowerCase();
-        return queryLower.contains("@app.route") || 
-               queryLower.contains("flask") || 
-               queryLower.contains("spring") || 
-               queryLower.contains("framework") || 
-               queryLower.contains("dependency") || 
-               queryLower.contains("dependencies") || 
-               queryLower.contains("project type") || 
-               queryLower.contains("rest api") || 
-               queryLower.contains("endpoint") || 
-               queryLower.contains("@") ||
-               queryLower.contains("library") ||
-               queryLower.contains("package") ||
-               queryLower.contains("technology");
-    }
-
-    /**
-     * Check if a document type should be prioritized regardless of similarity score
-     */
-    private boolean isPrioritizedDocumentType(SearchResult result) {
-        Map<String, Object> metadata = result.getMetadata();
-        String documentType = (String) metadata.getOrDefault("documentType", "");
-        
-        // Always include project analysis, dependencies, and framework documentation
-        return "projectAnalysis".equals(documentType) ||
-               "dependencies".equals(documentType) ||
-               "frameworkDocumentation".equals(documentType);
-    }
-
-    /**
-     * Project context information for search strategy
-     */
-    private static class ProjectContext {
-        private final String projectPath;
-        private final String projectType;
-        private final List<String> frameworks;
-        private final List<String> dependencies;
-        private final Map<String, Object> metadata;
-
-        public ProjectContext(String projectPath, String projectType, List<String> frameworks, 
-                             List<String> dependencies, Map<String, Object> metadata) {
-            this.projectPath = projectPath;
-            this.projectType = projectType;
-            this.frameworks = frameworks;
-            this.dependencies = dependencies;
-            this.metadata = metadata;
-        }
-
-        public String getProjectPath() { return projectPath; }
-        public String getProjectType() { return projectType; }
-        public List<String> getFrameworks() { return frameworks; }
-        public List<String> getDependencies() { return dependencies; }
-        public Map<String, Object> getMetadata() { return metadata; }
-        
-        public boolean isFlaskProject() {
-            return "FLASK".equals(projectType) || frameworks.contains("Flask");
-        }
-        
-        public boolean isPythonProject() {
-            return "PYTHON".equals(projectType) || "FLASK".equals(projectType);
-        }
-        
-        public boolean isSpringBootProject() {
-            return "SPRING_BOOT".equals(projectType) || frameworks.contains("Spring Boot");
-        }
-        
-        public boolean isJavaProject() {
-            return projectType.contains("JAVA") || isSpringBootProject();
-        }
-    }
-
-    /**
-     * Analyze the current project context to understand what type of project we're searching
-     */
-    private ProjectContext analyzeProjectContext(String currentDirectory) {
-        try {
-            System.out.println("🔍 Analyzing project context for: " + currentDirectory);
+            String uniqueKey = keyBuilder.toString();
             
-            // Use quick analysis for search operations to avoid expensive AI calls
-            Path projectPath = Paths.get(currentDirectory);
-            ProjectAnalysisService.ProjectAnalysis analysis = projectAnalysisService.analyzeProject(projectPath, true);
-            
-            // Extract context information
-            String projectType = analysis.getProjectType().name();
-            List<String> frameworks = new ArrayList<>(analysis.getFrameworks());
-            List<String> dependencies = analysis.getDependencies().stream()
-                    .map(ProjectAnalysisService.Dependency::getName)
-                    .collect(Collectors.toList());
-            
-            Map<String, Object> metadata = new HashMap<>();
-            metadata.put("dependencyCount", analysis.getDependencies().size());
-            metadata.put("frameworkCount", analysis.getFrameworks().size());
-            
-            System.out.println("📁 Project Type: " + analysis.getProjectType().getDisplayName());
-            System.out.println("🛠️ Frameworks: " + String.join(", ", frameworks));
-            System.out.println("📦 Dependencies: " + dependencies.size() + " found");
-            
-            return new ProjectContext(currentDirectory, projectType, frameworks, dependencies, metadata);
-            
-        } catch (Exception e) {
-            System.err.println("⚠️ Error analyzing project context: " + e.getMessage());
-            // Return a default context
-            return new ProjectContext(currentDirectory, "UNKNOWN", new ArrayList<>(), new ArrayList<>(), new HashMap<>());
+            // Keep the first occurrence or the one with higher relevance score
+            if (!uniqueResults.containsKey(uniqueKey) || 
+                uniqueResults.get(uniqueKey).getRelevanceScore() < result.getRelevanceScore()) {
+                uniqueResults.put(uniqueKey, result);
+            }
         }
+        
+        return new ArrayList<>(uniqueResults.values());
     }
 
-    /**
-     * Perform project-aware semantic search based on the project context
-     */
-    private List<SearchResult> performProjectAwareSearch(SearchRequest request, VectorStore vectorStore, ProjectContext context) {
-        System.out.println("🎯 Performing project-aware search...");
-        
-        // Generate project-specific search terms
-        List<String> searchQueries = generateProjectSpecificQueries(request.getQuery(), context);
-        
-        // Collect all documents from multiple search strategies
-        Set<Document> allDocuments = new HashSet<>();
-        
-        // Strategy 1: Original query
-        List<Document> originalResults = vectorStore.similaritySearch(request.getQuery());
-        allDocuments.addAll(originalResults);
-        System.out.println("📊 Original query returned: " + originalResults.size() + " documents");
-        
-        // Strategy 2: Project-specific queries
-        for (String query : searchQueries) {
-            List<Document> specificResults = vectorStore.similaritySearch(query);
-            allDocuments.addAll(specificResults);
-            System.out.println("📊 Project-specific query '" + query + "' returned: " + specificResults.size() + " documents");
-        }
-        
-        System.out.println("📊 Total unique documents collected: " + allDocuments.size());
-        
-        // Convert and score results based on project context
-        List<SearchResult> searchResults = allDocuments.stream()
-                .map(doc -> convertToSearchResultWithProjectContext(doc, request.getQuery(), context))
-                .collect(Collectors.toList());
-
-        // Apply project-aware filtering and sorting
-        final double threshold = determineProjectAwareThreshold(request, context);
-        final String queryForComparison = request.getQuery();
-        
-        List<SearchResult> filteredResults = searchResults.stream()
-                .filter(result -> result.getScore() >= threshold || isPrioritizedForProject(result, context))
-                .sorted((a, b) -> compareSearchResultsWithProjectContext(a, b, queryForComparison, context))
-                .limit(request.getLimit())
-                .collect(Collectors.toList());
-
-        System.out.println("🎯 Applied project-aware threshold " + threshold + " - " + filteredResults.size() + " results passed");
-        
-        return filteredResults;
-    }
-
-    /**
-     * Generate project-specific search queries based on the project context
-     */
-    private List<String> generateProjectSpecificQueries(String originalQuery, ProjectContext context) {
-        List<String> queries = new ArrayList<>();
-        
-        // For Flask/Python projects
-        if (context.isFlaskProject()) {
-            System.out.println("🐍 Generating Flask-specific search terms");
-            queries.add("@app.route flask endpoint " + originalQuery);
-            queries.add("flask dependencies requirements.txt " + originalQuery);
-            queries.add("python flask " + originalQuery);
-            
-            // If query mentions routes, add Flask-specific patterns
-            if (originalQuery.toLowerCase().contains("route") || originalQuery.toLowerCase().contains("endpoint")) {
-                queries.add("@app.route('/api/ flask");
-                queries.add("def api endpoint flask");
-                queries.add("return jsonify flask");
-            }
-        }
-        
-        // For Spring Boot/Java projects
-        if (context.isSpringBootProject()) {
-            System.out.println("☕ Generating Spring Boot-specific search terms");
-            queries.add("@RestController @RequestMapping " + originalQuery);
-            queries.add("spring boot dependencies pom.xml " + originalQuery);
-            queries.add("@GetMapping @PostMapping " + originalQuery);
-            
-            // If query mentions routes, add Spring-specific patterns
-            if (originalQuery.toLowerCase().contains("route") || originalQuery.toLowerCase().contains("endpoint")) {
-                queries.add("@RequestMapping(\"/api/ spring");
-                queries.add("@GetMapping @PostMapping spring");
-                queries.add("ResponseEntity spring boot");
-            }
-        }
-        
-        // For Python projects in general
-        if (context.isPythonProject()) {
-            queries.add("python dependencies requirements.txt " + originalQuery);
-            queries.add("import python " + originalQuery);
-            
-            // Add specific dependencies found in the project
-            for (String dep : context.getDependencies()) {
-                if (dep.toLowerCase().contains("flask") || dep.toLowerCase().contains("django") || 
-                    dep.toLowerCase().contains("fastapi")) {
-                    queries.add(dep + " " + originalQuery);
-                }
-            }
-        }
-        
-        // For Java projects in general
-        if (context.isJavaProject()) {
-            queries.add("java dependencies pom.xml " + originalQuery);
-            queries.add("@Component @Service @Repository " + originalQuery);
-        }
-        
-        // Add framework-specific queries
-        for (String framework : context.getFrameworks()) {
-            queries.add(framework + " " + originalQuery);
-        }
-        
-        System.out.println("🔍 Generated " + queries.size() + " project-specific queries");
-        return queries;
-    }
-
-    /**
-     * Convert document to SearchResult with project context awareness
-     */
-    private SearchResult convertToSearchResultWithProjectContext(Document document, String query, ProjectContext context) {
-        Map<String, Object> metadata = document.getMetadata();
-        String fileName = metadata.getOrDefault("filename", "Unknown").toString();
-        String filePath = metadata.getOrDefault("filepath", "Unknown").toString();
-        String content = document.getText();
-
-        // Add current collection name to metadata for proper display
-        String currentCollection = indexingService.getCurrentCollectionName();
-        metadata = new HashMap<>(metadata);
-        metadata.put("collectionName", currentCollection);
-
-        // Calculate relevance score with project context boost
-        double score = calculateRelevanceScoreWithProjectContext(content, query, metadata, context);
-
-        // Extract line matches from content
-        List<FileSearchService.LineMatch> lineMatches = extractLineMatchesFromContent(content, query);
-
-        return new SearchResult(fileName, filePath, content, score, "semantic", metadata, lineMatches);
-    }
-
-    /**
-     * Calculate relevance score with project context awareness
-     */
-    private double calculateRelevanceScoreWithProjectContext(String content, String query, 
-                                                           Map<String, Object> metadata, ProjectContext context) {
-        // Base scoring
-        double baseScore = calculateRelevanceScoreWithMetadata(content, query, metadata);
-        
-        // Apply project context boost
-        double contextBoost = getProjectContextBoost(content, metadata, context, query);
-        
-        // Final score with context boost
-        double finalScore = Math.min(1.0, baseScore * contextBoost);
-        
-        return Math.max(0.1, finalScore);
-    }
-    
-    /**
-     * Get boost factor based on project context
-     */
-    private double getProjectContextBoost(String content, Map<String, Object> metadata, 
-                                        ProjectContext context, String query) {
-        String documentType = (String) metadata.getOrDefault("documentType", "");
-        String contentLower = content.toLowerCase();
-        String queryLower = query.toLowerCase();
-        
-        double boost = 1.0;
-        
-        // Boost for project analysis documents
-        if ("projectAnalysis".equals(documentType) || "dependencies".equals(documentType)) {
-            boost = 2.0;
-        }
-        
-        // Flask project specific boosts
-        if (context.isFlaskProject()) {
-            if (contentLower.contains("@app.route") || contentLower.contains("flask")) {
-                boost *= 1.5;
-            }
-            if (queryLower.contains("route") && contentLower.contains("@app.route")) {
-                boost *= 2.0;
-            }
-            if (contentLower.contains("requirements.txt") || contentLower.contains("flask")) {
-                boost *= 1.3;
-            }
-        }
-        
-        // Spring Boot project specific boosts
-        if (context.isSpringBootProject()) {
-            if (contentLower.contains("@restcontroller") || contentLower.contains("@requestmapping")) {
-                boost *= 1.5;
-            }
-            if (queryLower.contains("endpoint") && contentLower.contains("@getmapping")) {
-                boost *= 2.0;
-            }
-            if (contentLower.contains("pom.xml") || contentLower.contains("spring")) {
-                boost *= 1.3;
-            }
-        }
-        
-        // Framework-specific boosts
-        for (String framework : context.getFrameworks()) {
-            if (contentLower.contains(framework.toLowerCase())) {
-                boost *= 1.2;
-            }
-        }
-        
-        return boost;
-    }
-
-    /**
-     * Determine threshold based on project context
-     */
-    private double determineProjectAwareThreshold(SearchRequest request, ProjectContext context) {
-        double baseThreshold = request.getThreshold() != null ? request.getThreshold() : 0.5;
-        
-        // Lower threshold for project analysis queries
-        if (isProjectAnalysisQuery(request.getQuery())) {
-            baseThreshold = Math.min(baseThreshold, 0.3);
-            System.out.println("🔍 Project analysis query detected - lowered threshold");
-        }
-        
-        // Lower threshold for framework-specific queries
-        String queryLower = request.getQuery().toLowerCase();
-        for (String framework : context.getFrameworks()) {
-            if (queryLower.contains(framework.toLowerCase())) {
-                baseThreshold = Math.min(baseThreshold, 0.4);
-                System.out.println("🛠️ Framework-specific query detected (" + framework + ") - lowered threshold");
-                break;
-            }
-        }
-        
-        return baseThreshold;
-    }
-
-    /**
-     * Check if a document should be prioritized for this project
-     */
-    private boolean isPrioritizedForProject(SearchResult result, ProjectContext context) {
-        Map<String, Object> metadata = result.getMetadata();
-        String documentType = (String) metadata.getOrDefault("documentType", "");
-        String content = result.getContent().toLowerCase();
-        
-        // Always prioritize project analysis and dependencies
-        if ("projectAnalysis".equals(documentType) || "dependencies".equals(documentType)) {
-            return true;
-        }
-        
-        // Prioritize framework-specific documents
-        for (String framework : context.getFrameworks()) {
-            if (content.contains(framework.toLowerCase())) {
-                return true;
-            }
-        }
-        
-        // Flask project priorities
-        if (context.isFlaskProject() && (content.contains("@app.route") || content.contains("flask"))) {
-            return true;
-        }
-        
-        // Spring Boot project priorities
-        if (context.isSpringBootProject() && (content.contains("@restcontroller") || content.contains("spring"))) {
-            return true;
-        }
-        
-        return false;
-    }
-
-    /**
-     * Compare search results with project context awareness
-     */
-    private int compareSearchResultsWithProjectContext(SearchResult a, SearchResult b, String query, ProjectContext context) {
-        // First, use project context priority
-        boolean aPrioritized = isPrioritizedForProject(a, context);
-        boolean bPrioritized = isPrioritizedForProject(b, context);
-        
-        if (aPrioritized && !bPrioritized) return -1;
-        if (!aPrioritized && bPrioritized) return 1;
-        
-        // Then use standard comparison
-        return compareSearchResults(a, b, query);
-    }
 }

@@ -1,0 +1,55 @@
+<mat-card>
+  <mat-card-header>
+    <mat-card-title>Music Player</mat-card-title>
+  </mat-card-header>
+
+  <mat-card-content>
+    <p>
+      Audio Ready:
+      <span [style.color]="audioReady ? 'green' : 'red'">{{ audioReady }}</span>
+    </p>
+    <p *ngIf="error" style="color: red">Error: {{ error }}</p>
+
+    <div style="margin: 16px 0">
+      <button
+        mat-raised-button
+        color="primary"
+        (click)="startDownload()"
+        [disabled]="audioReady"
+      >
+        <mat-icon>cloud_download</mat-icon>
+        Download & Play Music
+      </button>
+      <button
+        mat-raised-button
+        color="accent"
+        (click)="refresh()"
+        [disabled]="loading"
+        aria-label="Refresh"
+      >
+        <mat-icon>refresh</mat-icon>
+      </button>
+    </div>
+
+    <!-- Material Spinner shown while loading -->
+    <div *ngIf="loading" class="loading-container">
+      <mat-progress-spinner
+        mode="indeterminate"
+        diameter="50"
+        color="primary"
+      ></mat-progress-spinner>
+      <div class="loading-content">
+        <h3>Waiting for audio...</h3>
+        <p>Please wait while we connect to the server.</p>
+      </div>
+    </div>
+
+    <audio
+      *ngIf="audioReady"
+      id="audioPlayer"
+      [src]="audioSrc"
+      controls
+      style="width: 100%; margin-top: 16px"
+    ></audio>
+  </mat-card-content>
+</mat-card>

@@ -1,0 +1,230 @@
+<!-- Side Menu Component Template -->
+<div class="side-menu" [ngClass]="{'collapsed': isCollapsed}">
+  <!-- Header -->
+  <div class="menu-header">
+    <div class="header-content">
+      <button 
+        class="toggle-btn" 
+        (click)="onToggleSidebar()"
+        matRipple
+        [attr.aria-label]="isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'">
+        <mat-icon>{{ isCollapsed ? 'menu_open' : 'menu' }}</mat-icon>
+      </button>
+    </div>
+  </div>
+
+  <!-- Navigation Menu -->
+  <div class="navigation-section">
+    <div 
+      class="nav-item"
+      [class.active]="isActiveRoute('/dashboard')"
+      (click)="navigateTo('/dashboard')"
+      matRipple>
+      <mat-icon>dashboard</mat-icon>
+      <span *ngIf="!isCollapsed">{{ 'nav.dashboard' | translate }}</span>
+    </div>
+    
+    <div 
+      class="nav-item"
+      [class.active]="isActiveRoute('/forms')"
+      (click)="navigateTo('/forms')"
+      matRipple>
+      <mat-icon>description</mat-icon>
+      <span *ngIf="!isCollapsed">{{ 'nav.forms' | translate }}</span>
+    </div>
+    
+    <div 
+      class="nav-item"
+      [class.active]="isActiveRoute('/form-data')"
+      (click)="navigateTo('/form-data')"
+      matRipple>
+      <mat-icon>table_view</mat-icon>
+      <span *ngIf="!isCollapsed">{{ 'nav.form-data' | translate }}</span>
+    </div>
+    
+    <div 
+      class="nav-item"
+      [class.active]="isActiveRoute('/recipients')"
+      (click)="navigateTo('/recipients')"
+      matRipple>
+      <mat-icon>people</mat-icon>
+      <span *ngIf="!isCollapsed">{{ 'nav.recipients' | translate }}</span>
+    </div>
+    
+    <div 
+      class="nav-item"
+      [class.active]="isActiveRoute('/ask-dynaform')"
+      (click)="navigateTo('/ask-dynaform')"
+      matRipple>
+      <mat-icon>chat</mat-icon>
+      <span *ngIf="!isCollapsed">{{ 'nav.ask-ai' | translate }}</span>
+    </div>
+    
+    <div 
+      class="nav-item"
+      [class.active]="isActiveRoute('/settings')"
+      (click)="navigateTo('/settings')"
+      matRipple>
+      <mat-icon>settings</mat-icon>
+      <span *ngIf="!isCollapsed">{{ 'nav.settings' | translate }}</span>
+    </div>
+  </div>
+
+  <!-- Divider -->
+  <div *ngIf="!isCollapsed" class="divider"></div>
+
+  <!-- Recent Forms Section -->
+  <div *ngIf="!isCollapsed" class="forms-section">
+    <div class="section-header">
+      <h3>{{ 'sidebar.recent-forms' | translate }}</h3>
+    </div>
+
+    <!-- Search Bar -->
+    <div class="search-section">
+      <mat-form-field appearance="outline" class="search-field">
+        <mat-icon matPrefix>search</mat-icon>
+        <input 
+          matInput 
+          [placeholder]="'sidebar.search-placeholder' | translate"
+          [(ngModel)]="searchQuery"
+          (input)="onSearch(searchQuery)"
+          [disabled]="loading">
+        <button 
+          *ngIf="searchQuery" 
+          matSuffix
+          mat-icon-button 
+          (click)="clearSearch()"
+          [attr.aria-label]="'sidebar.clear-search' | translate">
+          <mat-icon>clear</mat-icon>
+        </button>
+      </mat-form-field>
+    </div>
+
+    <!-- Loading State -->
+    <div *ngIf="loading" class="loading-section">
+      <mat-spinner diameter="30"></mat-spinner>
+      <p *ngIf="!isCollapsed">{{ 'sidebar.loading' | translate }}</p>
+    </div>
+
+    <!-- Error State -->
+    <div *ngIf="error && !loading" class="error-section">
+      <mat-icon color="warn">error</mat-icon>
+      <p *ngIf="!isCollapsed">{{ error }}</p>
+      <button *ngIf="!isCollapsed" mat-button color="primary" (click)="loadForms()">
+        {{ 'sidebar.retry' | translate }}
+      </button>
+    </div>
+
+    <!-- Forms List -->
+    <div *ngIf="!loading && !error" class="forms-list">
+      <!-- Results Summary -->
+      <div *ngIf="!isCollapsed && totalCount > 0" class="results-summary">
+        <span class="count-badge">{{ totalCount }} {{ totalCount === 1 ? ('sidebar.forms.count.single' | translate) : ('sidebar.forms.count.plural' | translate) }}</span>
+      </div>
+
+      <!-- Empty State -->
+      <div *ngIf="(forms || []).length === 0" class="empty-state">
+        <mat-icon>description</mat-icon>
+        <p *ngIf="!isCollapsed">{{ searchQuery ? ('sidebar.no-forms-found' | translate) : ('sidebar.no-forms-yet' | translate) }}</p>
+      </div>
+
+      <!-- Form Items -->
+      <div class="form-items">
+        <div 
+          *ngFor="let form of forms || []; trackBy: trackByFormId" 
+          class="form-item"
+          (click)="onFormClick(form)"
+          matRipple>
+          
+          <div class="form-content">
+            <!-- Form Icon -->
+            <div class="form-icon">
+              <mat-icon>description</mat-icon>
+            </div>
+
+            <!-- Form Details -->
+            <div class="form-details">
+              <h4 class="form-title">{{ form.metadata.formName || ('sidebar.untitled-form' | translate) }}</h4>
+              <div class="form-meta">
+                <span class="created-date">
+                  <mat-icon>schedule</mat-icon>
+                  {{ formatDate(form.metadata.createdAt) }}
+                </span>
+                <span class="fields-count">
+                  <mat-icon>input</mat-icon>
+                  {{ getFormFieldsCount(form) }} {{ getFormFieldsCount(form) === 1 ? ('sidebar.fields.single' | translate) : ('sidebar.fields.plural' | translate) }}
+                </span>
+              </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="form-actions">
+              <button mat-icon-button 
+                      color="warn"
+                      class="delete-btn"
+                      (click)="onDeleteForm(form, $event)"
+                      [attr.aria-label]="'Delete ' + (form.metadata.formName || 'form')">
+                <mat-icon>delete</mat-icon>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- View All Link -->
+      <div *ngIf="(forms || []).length > 0" class="view-all-section">
+        <button mat-stroked-button color="primary" (click)="navigateTo('/forms')">
+          {{ 'sidebar.view-all' | translate }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Collapsed Navigation Icons -->
+  <div *ngIf="isCollapsed" class="collapsed-nav">
+    <div 
+      class="nav-icon"
+      [class.active]="isActiveRoute('/dashboard')"
+      (click)="navigateTo('/dashboard')"
+      matRipple
+      [title]="getTooltip('dashboard')">
+      <mat-icon>dashboard</mat-icon>
+    </div>
+    
+    <div 
+      class="nav-icon"
+      [class.active]="isActiveRoute('/forms')"
+      (click)="navigateTo('/forms')"
+      matRipple
+      [title]="getTooltip('forms')">
+      <mat-icon>description</mat-icon>
+    </div>
+    
+    <div 
+      class="nav-icon"
+      [class.active]="isActiveRoute('/form-data')"
+      (click)="navigateTo('/form-data')"
+      matRipple
+      [title]="getTooltip('form-data')">
+      <mat-icon>table_view</mat-icon>
+    </div>
+    
+    <div 
+      class="nav-icon"
+      [class.active]="isActiveRoute('/recipients')"
+      (click)="navigateTo('/recipients')"
+      matRipple
+      [title]="getTooltip('recipients')">
+      <mat-icon>people</mat-icon>
+    </div>
+    
+    <div 
+      class="nav-icon"
+      [class.active]="isActiveRoute('/ask-dynaform')"
+      (click)="navigateTo('/ask-dynaform')"
+      matRipple
+      [title]="getTooltip('ask-ai')">
+      <mat-icon>chat</mat-icon>
+    </div>
+  </div>
+</div>

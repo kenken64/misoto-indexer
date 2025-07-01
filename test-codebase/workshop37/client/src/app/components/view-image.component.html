@@ -1,0 +1,22 @@
+<div style="display: flex; justify-content: center; align-items: center; height: 100vh;">
+    <mat-card style="max-width: 400px; width: 100%;">
+      <mat-card-title style="text-align: center;">Image Preview</mat-card-title>
+      <mat-card-content style="display: flex; justify-content: center;">
+        <table>
+            <tr>
+                <td>
+                    <!-- Bind to [src]="imageData" if imageData is a property in your component -->
+                    <img [src]="imageData" alt="Preview" style="max-width: 100%; height: auto;">
+                    <span>{{comments}}</span>
+                </td>
+            </tr>
+            <tr>
+                <td>
+                   <app-backbutton></app-backbutton>
+                </td>
+            </tr>
+        </table>
+        
+    </mat-card-content>
+    </mat-card>
+</div>

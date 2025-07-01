@@ -1,0 +1,80 @@
+<div class="login-container">
+  <div class="login-card">
+    <!-- Home Button -->
+    <div class="home-button-container">
+      <button mat-icon-button 
+              class="home-button"
+              (click)="goToHome()"
+              title="Back to Home">
+        <mat-icon>home</mat-icon>
+      </button>
+    </div>
+    
+    <div class="login-header">
+      <mat-icon class="login-icon">assignment</mat-icon>
+      <h1>FormBT</h1>
+      <p>Dynamic Forms, Powered by Intelligence</p>
+    </div>
+
+    <div class="login-content">
+      <!-- Error Message -->
+      <div *ngIf="errorMessage" class="error-message">
+        <mat-icon>error</mat-icon>
+        <span>{{ errorMessage }}</span>
+      </div>
+
+      <!-- Primary Passkey Authentication -->
+      <div class="passkey-section">
+        <p class="passkey-description">Sign in securely with your passkey, biometric authentication, or security key</p>
+        <button mat-raised-button 
+                color="primary"
+                type="button"
+                class="passkey-button primary"
+                [disabled]="isLoading"
+                (click)="signInWithPasskey()">
+          <mat-spinner *ngIf="isLoading" diameter="20" class="login-spinner"></mat-spinner>
+          <mat-icon *ngIf="!isLoading">fingerprint</mat-icon>
+          {{ isLoading ? 'Authenticating...' : 'Sign In with Passkey' }}
+        </button>
+      </div>
+
+      <!-- NDI Authentication Section -->
+      <div class="ndi-section">
+        <mat-divider></mat-divider>
+        <p class="ndi-description">Or verify your identity with Bhutan National Digital Identity</p>
+        
+        <!-- NDI Error Message -->
+        <div *ngIf="ndiError" class="error-message ndi-error">
+          <mat-icon>error</mat-icon>
+          <span>{{ ndiError }}</span>
+        </div>
+
+        <!-- NDI Button -->
+        <button mat-raised-button 
+                type="button"
+                color="accent"
+                class="ndi-button"
+                [disabled]="isNDILoading"
+                (click)="signInWithNDI()">
+          <mat-spinner *ngIf="isNDILoading" diameter="20" class="login-spinner"></mat-spinner>
+          <mat-icon *ngIf="!isNDILoading">verified_user</mat-icon>
+          {{ isNDILoading ? 'Opening NDI...' : 'Sign in with Bhutan NDI' }}
+        </button>
+      </div>
+
+      <!-- Register Link -->
+      <div class="register-section">
+        <mat-divider></mat-divider>
+        <p class="register-title">Don't have an account?</p>
+        <button mat-raised-button 
+                type="button"
+                color="accent"
+                class="passkey-button secondary"
+                (click)="goToRegister()">
+          <mat-icon>person_add</mat-icon>
+          Create Account
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
